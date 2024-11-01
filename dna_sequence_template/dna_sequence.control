@@ -1,0 +1,5 @@
+# dna_sequence extension
+comment = 'dna_sequence - input/ouput functions for storing and analyzing DNA sequences'
+default_version = '1.0'
+module_pathname = '$libdir/dna_sequence'
+relocatable = true
