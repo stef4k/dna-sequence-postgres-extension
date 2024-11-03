@@ -5,6 +5,27 @@
  * Input/Output
  ******************************************************************************/
 
+-- Function to convert text to dna_sequence
+CREATE FUNCTION dna_in(cstring) RETURNS dna_sequence
+    AS 'MODULE_PATHNAME', 'dna_in'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Function to convert dna_sequence to text
+CREATE FUNCTION dna_out(dna_sequence) RETURNS cstring
+    AS 'MODULE_PATHNAME', 'dna_out'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Define the new dna_sequence type
+CREATE TYPE dna_sequence (
+    internallength = VARIABLE,
+    input = dna_in,
+    output = dna_out,
+    storage = extended, -- to compress and store large DNA sequences efficiently
+    category = 'S', -- to classify it as a string-like type
+    preferred = true
+);
+
+
 
 /******************************************************************************
  * Constructor
