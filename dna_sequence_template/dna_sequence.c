@@ -76,3 +76,12 @@ Datum dna_out(PG_FUNCTION_ARGS) {
 
     PG_RETURN_CSTRING(result);
 }
+
+// Length Function for dna sequence
+PG_FUNCTION_INFO_V1(dna_sequence_length);
+
+Datum dna_sequence_length(PG_FUNCTION_ARGS) {
+    Dna_sequence *input = (Dna_sequence *) PG_GETARG_POINTER(0);
+    int32 length = VARSIZE(input) - VARHDRSZ; // Get the length of the string
+    PG_RETURN_INT32(length);
+}

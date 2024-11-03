@@ -25,6 +25,11 @@ CREATE TYPE dna_sequence (
     preferred = true
 );
 
+-- Define the length function for dna_sequence
+CREATE FUNCTION length(dna_sequence)
+    RETURNS integer AS 'MODULE_PATHNAME', 'dna_sequence_length' 
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
 
 
 /******************************************************************************

@@ -6,3 +6,6 @@ select dna_sequence('GATTACAaaaa');
 
 -- check type
 select pg_typeof(dna_sequence('GATTACAaaaa'));
+
+-- check length of dna
+select length(dna_sequence('aaaaaaGGGG'));
