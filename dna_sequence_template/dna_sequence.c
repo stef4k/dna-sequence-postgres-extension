@@ -16,6 +16,11 @@
 #include "fmgr.h"
 #include "libpq/pqformat.h"
 #include "utils/fmgrprotos.h"
+#include "utils/builtins.h"
+
+bool is_valid_dna_string(const char *str);
+bool is_valid_kmer_string(const char *str);
+bool is_valid_qkmer_string(const char *str);
 
 PG_MODULE_MAGIC;
 
@@ -41,7 +46,7 @@ typedef struct {
 /* Structure to represent qkmer sequences */
 typedef struct {
     int32 length;
-    char data[QKMER_SIZE];
+    char data[FLEXIBLE_ARRAY_MEMBER];
 } Qkmer;
 
 /******************************************************************************
@@ -105,13 +110,16 @@ bool is_valid_qkmer_string(const char *str) {
 PG_FUNCTION_INFO_V1(dna_in);
 Datum dna_in(PG_FUNCTION_ARGS) {
     char *input = PG_GETARG_CSTRING(0);
+    int32 length;
+    Dna_sequence *result;
+
     // Validate characters
     if (!is_valid_dna_string(input)) {
         ereport(ERROR, (errmsg("Invalid input: only 'A', 'C', 'G', 'T' characters are allowed")));
     }
 
-    int32 length = strlen(input);
-    Dna_sequence *result = (Dna_sequence *) palloc(VARHDRSZ + length);
+    length = strlen(input);
+    result = (Dna_sequence *) palloc(VARHDRSZ + length);  // Correct assignment
     SET_VARSIZE(result, VARHDRSZ + length);
     memcpy(result->data, input, length);
 
@@ -129,6 +137,7 @@ Datum dna_out(PG_FUNCTION_ARGS) {
     memcpy(result, input->data, length);
     result[length] = '\0';
 
+    PG_FREE_IF_COPY(input, 0);
     PG_RETURN_CSTRING(result);
 }
 
@@ -136,20 +145,24 @@ Datum dna_out(PG_FUNCTION_ARGS) {
 PG_FUNCTION_INFO_V1(kmer_in);
 Datum kmer_in(PG_FUNCTION_ARGS) {
     char *input = PG_GETARG_CSTRING(0);
+    int32 length;
+    Kmer *result;
+
     // Validate the kmer string
     if (!is_valid_kmer_string(input)) {
         ereport(ERROR,
         (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
-         errmsg("Invalid input: only 'A', 'C', 'G', 'T' characters are allowed and length must be <= %d", QKMER_SIZE)));
+         errmsg("Invalid input: only 'A', 'C', 'G', 'T' characters are allowed and length must be <= %d", KMER_SIZE)));
     }
 
-    int32 length = strlen(input);
-    Kmer *result = (Kmer *) palloc(VARHDRSZ + length);
+    length = strlen(input);
+    result = (Kmer *) palloc(VARHDRSZ + length);  // Correct assignment
     SET_VARSIZE(result, VARHDRSZ + length);
     memcpy(result->data, input, length);
 
     PG_RETURN_POINTER(result);
 }
+
 
 /* Output function kmer sequence*/
 PG_FUNCTION_INFO_V1(kmer_out);
@@ -161,6 +174,7 @@ Datum kmer_out(PG_FUNCTION_ARGS){
     memcpy(result, input->data, length);
     result[length] = '\0';
 
+    PG_FREE_IF_COPY(input, 0);
     PG_RETURN_CSTRING(result);
 }
 
@@ -168,24 +182,27 @@ Datum kmer_out(PG_FUNCTION_ARGS){
 PG_FUNCTION_INFO_V1(qkmer_in);
 Datum qkmer_in(PG_FUNCTION_ARGS) {
     char *input = PG_GETARG_CSTRING(0);
+    int32 length;
+    Qkmer *result;  // Declare the pointer
+
     // Validate length
     if (strlen(input) > QKMER_SIZE) {
         ereport(ERROR, (errmsg("Input exceeds maximum length of %d", QKMER_SIZE)));
     }
+
     // Validate characters
     if (!is_valid_qkmer_string(input)) {
         ereport(ERROR, (errmsg("Invalid input: only 'A', 'B', 'C', 'D', 'G', "
         "'H', 'K', 'M', 'N', 'R', 'S', 'T', 'V', 'W', 'Y' characters are allowed")));
     }
 
-    int32 length = strlen(input);
-    Qkmer *result = (Qkmer *) palloc(VARHDRSZ + length);
+    length = strlen(input);
+    result = (Qkmer *) palloc(VARHDRSZ + length);  // Correct assignment
     SET_VARSIZE(result, VARHDRSZ + length);
     memcpy(result->data, input, length);
 
     PG_RETURN_POINTER(result);
 }
-
 
 /* Output function qkmer sequence*/
 PG_FUNCTION_INFO_V1(qkmer_out);
@@ -197,6 +214,7 @@ Datum qkmer_out(PG_FUNCTION_ARGS) {
     memcpy(result, input->data, length);
     result[length] = '\0';
 
+    PG_FREE_IF_COPY(input, 0);
     PG_RETURN_CSTRING(result);
 }
 
@@ -226,4 +244,72 @@ Datum qkmer_length(PG_FUNCTION_ARGS) {
     Qkmer *input = (Qkmer *) PG_GETARG_POINTER(0);
     int32 length = VARSIZE(input) - VARHDRSZ; // Get the length of the string
     PG_RETURN_INT32(length);
+}
+
+/******************************************************************************
+    Equaltiy Functions for kmer
+ ******************************************************************************/
+
+/* Equals Function for kmer */
+PG_FUNCTION_INFO_V1(kmer_equals);
+Datum kmer_equals(PG_FUNCTION_ARGS){
+    Kmer *kmer1 = (Kmer *) PG_GETARG_POINTER(0);
+    Kmer *kmer2 = (Kmer *) PG_GETARG_POINTER(1);
+
+    int32 len1 = VARSIZE(kmer1) - VARHDRSZ;
+    int32 len2 = VARSIZE(kmer2) - VARHDRSZ;
+
+    if (len1 != len2) {
+        PG_RETURN_BOOL(false);
+    }
+
+    // Compares the first num bytes of the block of memory pointed by ptr1 to the first  
+    // num bytes pointed by ptr2, returning zero if they all match
+    if (memcmp(kmer1->data, kmer2->data, len1) == 0) {
+        PG_RETURN_BOOL(true);
+    } else {
+        PG_RETURN_BOOL(false);
+    }
+}
+
+/* OPTIONAL: Not Equals Function for kmer */
+PG_FUNCTION_INFO_V1(kmer_not_equals);
+Datum kmer_not_equals(PG_FUNCTION_ARGS) {
+    Kmer *kmer1 = (Kmer *) PG_GETARG_POINTER(0);
+    Kmer *kmer2 = (Kmer *) PG_GETARG_POINTER(1);
+
+    int32 len1 = VARSIZE(kmer1) - VARHDRSZ;
+    int32 len2 = VARSIZE(kmer2) - VARHDRSZ;
+
+    if (len1 != len2) {
+        PG_RETURN_BOOL(true);
+    }
+
+    if (memcmp(kmer1->data, kmer2->data, len1) != 0) {
+        PG_RETURN_BOOL(true);
+    } else {
+        PG_RETURN_BOOL(false);
+    }
+}
+
+/* Cast Function from text to kmer (for comparisons like kmer =/<> 'ACGTA') */
+PG_FUNCTION_INFO_V1(kmer_cast_text);
+Datum kmer_cast_text(PG_FUNCTION_ARGS) {
+    text *txt = PG_GETARG_TEXT_P(0);
+    char *str = text_to_cstring(txt);
+    int32 length;
+    Kmer *result;
+
+    // Validate the kmer string
+    if (!is_valid_kmer_string(str)) {
+        ereport(ERROR, (errmsg("Invalid input: only 'A', 'C', 'G', 'T' characters are allowed and length must be <= %d", KMER_SIZE)));
+    }
+
+    length = strlen(str);
+    result = (Kmer *) palloc(VARHDRSZ + length);  // Correct assignment
+    SET_VARSIZE(result, VARHDRSZ + length);
+    memcpy(result->data, str, length);
+    pfree(str);
+
+    PG_RETURN_POINTER(result);
 }

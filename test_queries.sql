@@ -26,3 +26,11 @@ SELECT 'ACGTACGTACGTACGTACGTACGTACGTACGTA'::kmer; -- Should fail due to length >
 
 -- test length function
 SELECT length('ACGTACGT'::kmer);
+
+-- Using the equals function
+SELECT equals('ACGTA', 'ACGTA');
+SELECT equals('ACGTA', 'ACGTA'::kmer);
+SELECT 'ACGTA'::kmer = 'CCGTA';
+SELECT 'ACGTA'::kmer = 'ACGTA';
+SELECT not_equals('ACGTA', 'ACGTA');
+SELECT 'ACGTA'::kmer <> 'ACCTA';

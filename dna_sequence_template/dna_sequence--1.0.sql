@@ -95,6 +95,49 @@ CREATE FUNCTION length(qkmer)
     LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
 /******************************************************************************
+ * Equality functions
+ ******************************************************************************/
+
+ -- Function to compare two kmers for equality
+CREATE FUNCTION equals(kmer, kmer)
+    RETURNS boolean AS 'MODULE_PATHNAME', 'kmer_equals'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Function to compare two kmers for inequality
+CREATE FUNCTION not_equals(kmer, kmer)
+    RETURNS boolean AS 'MODULE_PATHNAME', 'kmer_not_equals'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Create the '=' operator for kmer type
+CREATE OPERATOR = (
+    LEFTARG = kmer,
+    RIGHTARG = kmer,
+    PROCEDURE = equals,
+    COMMUTATOR = =,
+    NEGATOR = <>
+);
+
+-- Create the '<>' operator for kmer type
+CREATE OPERATOR <> (
+    LEFTARG = kmer,
+    RIGHTARG = kmer,
+    PROCEDURE = not_equals,
+    COMMUTATOR = <>,
+    NEGATOR = =
+);
+
+-- Function to cast text to kmer
+CREATE FUNCTION kmer(text)
+    RETURNS kmer
+    AS 'MODULE_PATHNAME', 'kmer_cast_text'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Create an implicit cast (a cast that the database server can invoke automatically when 
+-- it encounters data types that cannot be compared with built-in casts) from text to kmer
+-- Needed for the '=' and '<>' operators to work with text
+CREATE CAST (text AS kmer) WITH FUNCTION kmer(text) AS IMPLICIT;
+
+/******************************************************************************
  * Constructor
  ******************************************************************************/
 
