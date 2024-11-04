@@ -24,7 +24,6 @@ CREATE TYPE dna_sequence (
     internallength = VARIABLE,
     input = dna_in,
     output = dna_out,
-    storage = extended, -- to compress and store large DNA sequences efficiently
     category = 'S', -- to classify it as a string-like type
     preferred = true
 );
@@ -48,7 +47,6 @@ CREATE TYPE kmer (
     internallength = VARIABLE,
     input = kmer_in,
     output = kmer_out,
-    storage = extended, -- to compress and store efficiently
     category = 'S' -- classify as string-like type
 );
 
@@ -71,7 +69,6 @@ CREATE TYPE qkmer (
     internallength = VARIABLE,
     input = qkmer_in,
     output = qkmer_out,
-    storage = extended, -- to compress and store large QKMER sequences efficiently
     category = 'S' -- to classify it as a string-like type
 );
 
