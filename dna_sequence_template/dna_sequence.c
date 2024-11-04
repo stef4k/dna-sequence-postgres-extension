@@ -17,6 +17,7 @@
 #include "libpq/pqformat.h"
 #include "utils/fmgrprotos.h"
 #include "utils/builtins.h"
+#include "funcapi.h"  // SRF macros
 
 bool is_valid_dna_string(const char *str);
 bool is_valid_kmer_string(const char *str);
@@ -48,6 +49,13 @@ typedef struct {
     int32 length;
     char data[FLEXIBLE_ARRAY_MEMBER];
 } Qkmer;
+
+/* Structure for generate_kmers function context - refer to docs*/
+typedef struct {
+    char *dna_sequence;
+    int dna_length;
+    int k;
+} generate_kmers_fctx;
 
 /******************************************************************************
     Validation Functions
@@ -312,4 +320,107 @@ Datum kmer_cast_text(PG_FUNCTION_ARGS) {
     pfree(str);
 
     PG_RETURN_POINTER(result);
+}
+
+/******************************************************************************
+ * Set-Returning Function: generate_kmers
+ ******************************************************************************/
+
+// Function option for returning sets: ValuePerCall mode
+// -> Memory allocated in multi_call_memory_ctx (like fctx and fctx->dna_sequence) does not need to be manually freed
+// -> it will be cleaned up automatically when the SRF is done.
+
+// Comments in most places will correcpond to the documentation in the topic
+// Refer to it here: https://www.postgresql.org/docs/current/xfunc-c.html#XFUNC-C-RETURN-SET
+
+PG_FUNCTION_INFO_V1(generate_kmers);
+Datum generate_kmers(PG_FUNCTION_ARGS) {
+    FuncCallContext *funcctx;
+    generate_kmers_fctx *fctx;
+
+    /* stuff done only on the first call of the function */
+    if (SRF_IS_FIRSTCALL()) {
+        MemoryContext oldcontext;
+        Dna_sequence *dna_input;
+        int k;
+        int dna_length;
+
+        /* Create a function context for cross-call persistence */
+        funcctx = SRF_FIRSTCALL_INIT();
+
+        /* Switch to memory context (appropriate for multiple function calls) */
+        oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+        /* Extract function arguments in the form of: ('ACGTACGT', 6)*/
+        dna_input = (Dna_sequence *) PG_GETARG_POINTER(0);
+        k = PG_GETARG_INT32(1);
+
+        /* Validate k */
+        dna_length = VARSIZE(dna_input) - VARHDRSZ;
+        //TODO: Ask if we need to account for the max kmer lenght, might be an edge case 
+        if (k <= 0 || k > dna_length) {
+            ereport(ERROR,
+                (errmsg("Invalid k: must be between 1 and the length of the DNA sequence")));
+        }
+
+        /* Allocate memory for user context */
+        fctx = (generate_kmers_fctx *) palloc(sizeof(generate_kmers_fctx));
+
+        /* Copy DNA sequence into the user context */
+        fctx->dna_sequence = (char *) palloc(dna_length + 1);
+        memcpy(fctx->dna_sequence, dna_input->data, dna_length);
+        fctx->dna_sequence[dna_length] = '\0';  // null-terminate
+        fctx->dna_length = dna_length;
+        fctx->k = k;
+
+        /* Store the user context */
+        funcctx->user_fctx = fctx;
+
+        /* Total nr of k-mers */
+        funcctx->max_calls = dna_length - k + 1;
+
+        MemoryContextSwitchTo(oldcontext);
+    }
+
+     /* Stuff done on every call of the function */
+     funcctx = SRF_PERCALL_SETUP();
+     fctx = (generate_kmers_fctx *) funcctx->user_fctx;
+
+     /* Check if there are more k-mers to return (also taken from docs) */
+     if (funcctx->call_cntr < funcctx->max_calls) {
+        int current_pos = funcctx->call_cntr;
+        Datum result;
+        Kmer *kmer_result;
+
+        /* Get the next k-mer */
+        char *kmer_str = (char *) palloc(fctx->k + 1);
+        memcpy(kmer_str, fctx->dna_sequence + current_pos, fctx->k);
+        kmer_str[fctx->k] = '\0';  // null-terminate
+
+        /* Create a Kmer object */
+        /* Explanation to Otto (only the first line below):
+            1. palloc allocates memory from PSQL's memory context (PSQL will automatically clean up this memory when no longer needed) 
+            2. (Kmer *) casts the pointer returned by palloc to a pointer of type Kmer (defined above in a struct) 
+            3. VARHDRSZ: PSQL macro -> size of the variable-length data header (4 bytes)
+            4. fctx->k: the length of the k-mer
+            5. By adding the two, there will be enough space for both the header and the k-mer data (k bytes)
+            */
+        kmer_result = (Kmer *) palloc(VARHDRSZ + fctx->k);
+        SET_VARSIZE(kmer_result, VARHDRSZ + fctx->k);
+        memcpy(kmer_result->data, kmer_str, fctx->k);
+
+        /* Convert to Datum */
+        result = PointerGetDatum(kmer_result);
+
+        /* Clean up temporary memory */
+        pfree(kmer_str);
+
+        /* Return the next k-mer */
+        SRF_RETURN_NEXT(funcctx, result);
+    }
+    else
+    {
+        /* do when there is no more left */
+        SRF_RETURN_DONE(funcctx);
+    }
 }

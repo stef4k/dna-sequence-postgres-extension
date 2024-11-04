@@ -135,6 +135,16 @@ CREATE FUNCTION kmer(text)
 CREATE CAST (text AS kmer) WITH FUNCTION kmer(text) AS IMPLICIT;
 
 /******************************************************************************
+ * Set-Returning Function: generate_kmers
+ ******************************************************************************/
+
+-- First option from the docs is used
+CREATE OR REPLACE FUNCTION generate_kmers(dna_sequence, integer)
+    RETURNS SETOF kmer
+    AS 'MODULE_PATHNAME', 'generate_kmers'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+/******************************************************************************
  * Constructor
  ******************************************************************************/
 
