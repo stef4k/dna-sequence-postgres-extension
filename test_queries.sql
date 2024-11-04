@@ -34,3 +34,16 @@ SELECT 'ACGTA'::kmer = 'CCGTA';
 SELECT 'ACGTA'::kmer = 'ACGTA';
 SELECT not_equals('ACGTA', 'ACGTA');
 SELECT 'ACGTA'::kmer <> 'ACCTA';
+
+CREATE TABLE kmer_test (id serial PRIMARY KEY, kmer_col kmer);
+
+INSERT INTO kmer_test (kmer_col)
+VALUES('ACGTA'),('GATTC'),('ACCTA')
+
+SELECT *
+FROM kmer_test
+WHERE kmer_col = 'ACGTA';
+
+SELECT *
+FROM kmer_test
+WHERE  not_equals(kmer_col, 'ACGTA');
