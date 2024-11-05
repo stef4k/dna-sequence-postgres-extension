@@ -66,3 +66,121 @@ WHERE  not_equals(kmer_col, 'ACGTA');
 -- TODO: REMOVE DUPLICATION
 SELECT k.kmer
 FROM generate_kmers('GTAGAGCTGT', 6) AS k(kmer);
+
+CREATE TABLE kmers (kmer kmer);
+
+INSERT INTO kmers (kmer) VALUES
+('ACGT'),
+('CGTA'),
+('GTAC'),
+('TACG'),
+('ACGTA'),
+('CGTAC'),
+('GTACG'),
+('TACGT'),
+('ACGTAC'),
+('CGTACG'),
+('GTACGT'),
+('TACGTA'),
+('ACGTACG'),
+('CGTACGT'),
+('GTACGTA'),
+('TACGTAC'),
+('ACGTACGT'),
+('CGTACGTA'),
+('GTACGTAC'),
+('TACGTACG'),
+('GATC'),
+('TCGA'),
+('CAGT'),
+('TGAC'),
+('GATCA'),
+('TCGAT'),
+('CAGTC'),
+('TGACT'),
+('GATCAG'),
+('TCGATC'),
+('CAGTCA'),
+('TGACTG'),
+('GATCAGT'),
+('TCGATCG'),
+('CAGTCGA'),
+('TGACTGC'),
+('GATCAGTC'),
+('TCGATCGA'),
+('CAGTCGAC'),
+('TGACTGCA'),
+('GATCAGTCA'),
+('TCGATCGTA'),
+('CAGTCGACT'),
+('TGACTGCAG'),
+('ACGCGT'),
+('CGCGTA'),
+('GCGTAC'),
+('TACGCG'),
+('ACGCGTA'),
+('CGCGTAC'),
+('GCGTACG'),
+('TACGCGT'),
+('ACGTGCA'),
+('TGCGTAC'),
+('CGTGCGT'),
+('GTACGCG'),
+('TCGACGT'),
+('AGTCGTA'),
+('CGTAGTC'),
+('GTCGATG'),
+('GACTGCA'),
+('CGTAGCT'),
+('GCTAGCA'),
+('TGACTGA'),
+('GCTACGA'),
+('GTACTGA'),
+('CGTAGTA'),
+('GTGACTA'),
+('TACGATA'),
+('CGTAGTG'),
+('TAGCTAG'),
+('CTAGCTA'),
+('AGTACTA'),
+('GACTGTA'),
+('CGTAGTG'),
+('TGACTGA'),
+('TAGCTAC'),
+('GTACTGA'),
+('CAGTCGT'),
+('GTACGTA'),
+('CGTGATA'),
+('GTCGACT'),
+('TACGTCA'),
+('CGTACGA'),
+('TGACGTA'),
+('GATCGAT'),
+('CGTAGTG'),
+('TCGACGA'),
+('AGTCAGT'),
+('TGACTGC'),
+('CAGTACG'),
+('TCGATCG'),
+('GTACGCT'),
+('ACGTGAC'),
+('CGTAGCA'),
+('GACTGTA'),
+('TACGCGT'),
+('TGACGCA');
+
+SELECT *
+FROM kmers
+WHERE starts_with(kmer, 'ACGT');
+
+SELECT *
+FROM kmers
+WHERE starts_with(kmer, 'ACGCCCCT'); -- it takes the shortest kmer in the table, this might need to be adjusted
+
+SELECT *
+FROM kmers
+WHERE kmer ^@ 'ACGT';
+
+SELECT *
+FROM kmers
+WHERE kmer ^@ 'ACGCCCCT';

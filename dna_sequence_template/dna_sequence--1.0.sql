@@ -144,6 +144,26 @@ CREATE OR REPLACE FUNCTION generate_kmers(dna_sequence, integer)
     AS 'MODULE_PATHNAME', 'generate_kmers'
     LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
+
+/******************************************************************************
+ * Starts_with Function
+ ******************************************************************************/
+
+-- !! Order in starts_with() is reversed compared to the requirement, otherwise it can't be used as an operator
+CREATE FUNCTION starts_with(kmer, kmer)
+    RETURNS boolean AS 'MODULE_PATHNAME', 'kmer_starts_with'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+-- '^@' operator for kmer type
+CREATE OPERATOR ^@ (
+    LEFTARG = kmer,
+    RIGHTARG = kmer,
+    PROCEDURE = starts_with
+);
+-- We already have an implicit cast from text to kmer, so that doen't need to be handled here
+-- (more info on operators: https://www.postgresql.org/docs/current/sql-createoperator.html)
+-- Something to look into in the future: CREATE OPERATOR CLASS (https://www.postgresql.org/docs/current/sql-createopclass.html)
+
 /******************************************************************************
  * Constructor
  ******************************************************************************/

@@ -424,3 +424,31 @@ Datum generate_kmers(PG_FUNCTION_ARGS) {
         SRF_RETURN_DONE(funcctx);
     }
 }
+
+/******************************************************************************
+ * Starts_with Function for kmer
+ ******************************************************************************/
+
+PG_FUNCTION_INFO_V1(kmer_starts_with);
+Datum kmer_starts_with(PG_FUNCTION_ARGS) {
+    Kmer *kmer = (Kmer *) PG_GETARG_POINTER(0);
+    Kmer *prefix = (Kmer *) PG_GETARG_POINTER(1);
+
+    int32 prefix_len = VARSIZE(prefix) - VARHDRSZ;
+    int32 kmer_len = VARSIZE(kmer) - VARHDRSZ;
+
+    /* Check if prefix length is greater than kmer length */
+    if (prefix_len > kmer_len) {
+        ereport(ERROR,
+            (errcode (ERRCODE_INVALID_PARAMETER_VALUE),
+            errmsg("Prefix length (%d) is greater than kmer length (%d)", prefix_len, kmer_len)));
+    }
+
+    /* Compare (prefix_len bytes of) kmer->data and prefix->data */
+    // for reference for the others: https://www.tutorialspoint.com/c_standard_library/c_function_memcmp.htm
+    if (memcmp(kmer->data, prefix->data, prefix_len) == 0) {
+        PG_RETURN_BOOL(true);
+    } else {
+        PG_RETURN_BOOL(false);
+    }
+}
