@@ -184,3 +184,21 @@ WHERE kmer ^@ 'ACGT';
 SELECT *
 FROM kmers
 WHERE kmer ^@ 'ACGCCCCT';
+
+
+-- Check GROUP BY and COUNT for kmer data type
+SELECT k.kmer, count(*)
+FROM generate_kmers('ATCGATCAC', 3) AS k(kmer)
+GROUP BY k.kmer
+ORDER BY count(*) DESC;
+
+-- Check total, distinct and unique count of kmer sequence
+WITH kmers AS (
+SELECT k.kmer, count(*)
+FROM generate_kmers('ATCGATCAC', 3) AS k(kmer)
+GROUP BY k.kmer
+)
+SELECT sum(count) AS total_count,
+count(*) AS distinct_count,
+count(*) FILTER (WHERE count = 1) AS unique_count
+FROM kmers;
