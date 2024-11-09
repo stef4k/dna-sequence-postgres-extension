@@ -452,3 +452,20 @@ Datum kmer_starts_with(PG_FUNCTION_ARGS) {
         PG_RETURN_BOOL(false);
     }
 }
+
+/******************************************************************************
+ * HASH index implementation
+ ******************************************************************************/
+#include "access/hash.h"
+
+/* Compute a hash value based on the contents of the Kmer data type */
+PG_FUNCTION_INFO_V1(kmer_hash);
+Datum kmer_hash(PG_FUNCTION_ARGS) {
+    Kmer *kmer = (Kmer *) PG_GETARG_POINTER(0);
+    int32 length = VARSIZE(kmer) - VARHDRSZ;
+
+    /* Compute hash using PostgreSQL's hash_any function */
+    uint32 hash = hash_any((unsigned char *) kmer->data, length);
+
+    PG_RETURN_UINT32(hash);
+}

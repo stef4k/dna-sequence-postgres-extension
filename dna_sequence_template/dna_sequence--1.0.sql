@@ -111,7 +111,9 @@ CREATE OPERATOR = (
     RIGHTARG = kmer,
     PROCEDURE = equals,
     COMMUTATOR = =,
-    NEGATOR = <>
+    NEGATOR = <>,
+    HASHES, --this operator supports hash joins and hashing operations
+    MERGES --this operator can be used in merge joins
 );
 
 -- Create the '<>' operator for kmer type
@@ -158,15 +160,28 @@ CREATE FUNCTION starts_with(kmer, kmer)
 CREATE OPERATOR ^@ (
     LEFTARG = kmer,
     RIGHTARG = kmer,
-    PROCEDURE = starts_with
+    PROCEDURE = starts_with,
+    COMMUTATOR = @^
 );
 -- We already have an implicit cast from text to kmer, so that doen't need to be handled here
 -- (more info on operators: https://www.postgresql.org/docs/current/sql-createoperator.html)
 -- Something to look into in the future: CREATE OPERATOR CLASS (https://www.postgresql.org/docs/current/sql-createopclass.html)
 
 /******************************************************************************
- * Constructor
+ * A custom hash function allowing hash-based indexes and hash joins
+ in order to implement group by, DISTINCT and COUNT
+ SHOULD BE UPDATED WHEN SP-GIST IS IMPLEMENTED
  ******************************************************************************/
+
+-- Create hash function for kmer
+CREATE FUNCTION kmer_hash(kmer) RETURNS integer
+    AS 'MODULE_PATHNAME', 'kmer_hash'
+    LANGUAGE C IMMUTABLE STRICT;
+
+-- Register the kmer type as hashable
+CREATE OPERATOR CLASS kmer_hash_ops DEFAULT FOR TYPE kmer USING hash AS
+    OPERATOR 1 = (kmer, kmer),
+    FUNCTION 1 kmer_hash(kmer);
 
 
 
