@@ -112,8 +112,8 @@ CREATE OPERATOR = (
     PROCEDURE = equals,
     COMMUTATOR = =,
     NEGATOR = <>,
-    HASHES, --this operator supports hash joins and hashing operations
-    MERGES --this operator can be used in merge joins
+    HASHES, --this operator supports hash joins and hashing operations - needed for HASH index
+    MERGES --this operator can be used in merge joins - needed for HASH index
 );
 
 -- Create the '<>' operator for kmer type

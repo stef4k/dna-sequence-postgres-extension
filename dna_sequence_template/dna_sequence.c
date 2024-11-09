@@ -18,6 +18,7 @@
 #include "utils/fmgrprotos.h"
 #include "utils/builtins.h"
 #include "funcapi.h"  // SRF macros
+#include "access/hash.h" // for HASH index implementation - REMOVE LATER
 
 bool is_valid_dna_string(const char *str);
 bool is_valid_kmer_string(const char *str);
@@ -456,7 +457,6 @@ Datum kmer_starts_with(PG_FUNCTION_ARGS) {
 /******************************************************************************
  * HASH index implementation
  ******************************************************************************/
-#include "access/hash.h"
 
 /* Compute a hash value based on the contents of the Kmer data type */
 PG_FUNCTION_INFO_V1(kmer_hash);
