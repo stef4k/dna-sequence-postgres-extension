@@ -5,7 +5,7 @@
  *
  * dna_sequence '(a,b)'
  *
- * Author: Otto Wantland
+ * Authors: Kristóf Balázs, Stefanos Kypritidis, Otto Wantland, Nima Kamali Lassem
  */
 
 #include <math.h>
@@ -74,8 +74,9 @@ bool is_valid_dna_string(const char *str) {
     return true;
 }
 
-/* Function to validate inputted kmer sequence,
-   checks that string characters are one of A,C,G,T */
+/*  Function to validate inputted kmer sequence,
+    checks for maximum length of kmer string and
+    checks that string characters are one of A,C,G,T */
 bool is_valid_kmer_string(const char *str){
     int len = strlen(str);
     if (len > KMER_SIZE) {
@@ -92,19 +93,22 @@ bool is_valid_kmer_string(const char *str){
     return true;
 }
 
-/* Function to validate inputted qkmer sequence,
- checks that string characters are one of the standard nucleotides: A,C,G,T 
- or the ambiguity characters W,S,M,K,R,Y,B,D,H,V,N */
+/*  Function to validate inputted qkmer sequence,
+    checks for maximum allowed length of qkmer string and
+    checks that string characters are one of the standard nucleotides: A,C,G,T 
+    or the ambiguity characters W,S,M,K,R,Y,B,D,H,V,N */
 bool is_valid_qkmer_string(const char *str) {
-    for (int i = 0; i < strlen(str); i++) {
-        if (str[i] != 'A' && str[i] != 'C' && str[i] != 'G' && str[i] != 'T'
-        && str[i] != 'W' && str[i] != 'S' && str[i] != 'M' && str[i] != 'K'
-        && str[i] != 'R' && str[i] != 'Y' && str[i] != 'B' && str[i] != 'D'
-        && str[i] != 'H' && str[i] != 'V' && str[i] != 'N'
-        && str[i] != 'a' && str[i] != 'c' && str[i] != 'g' && str[i] != 't'
-        && str[i] != 'w' && str[i] != 's' && str[i] != 'm' && str[i] != 'k'
-        && str[i] != 'r' && str[i] != 'y' && str[i] != 'b' && str[i] != 'd'
-        && str[i] != 'h' && str[i] != 'v' && str[i] != 'n' ) {
+    int len = strlen(str);
+    if (len > QKMER_SIZE) {
+        ereport(ERROR,
+            (errcode(ERRCODE_STRING_DATA_RIGHT_TRUNCATION),
+            errmsg("Input exceeds maximum length of %d", QKMER_SIZE)));
+    }
+    for (int i = 0; i < len; i++) {
+        if (toupper(str[i]) != 'A' && toupper(str[i]) != 'C' && toupper(str[i]) != 'G' && toupper(str[i]) != 'T'
+        && toupper(str[i]) != 'W' && toupper(str[i]) != 'S' && toupper(str[i]) != 'M' && toupper(str[i]) != 'K'
+        && toupper(str[i]) != 'R' && toupper(str[i]) != 'Y' && toupper(str[i]) != 'B' && toupper(str[i]) != 'D'
+        && toupper(str[i]) != 'H' && toupper(str[i]) != 'V' && toupper(str[i]) != 'N') {
             return false;
         }
     }
