@@ -168,6 +168,23 @@ CREATE OPERATOR ^@ (
 -- Something to look into in the future: CREATE OPERATOR CLASS (https://www.postgresql.org/docs/current/sql-createopclass.html)
 
 /******************************************************************************
+ * Contains Function
+ ******************************************************************************/
+
+-- Function to test if a qkmer pattern contains a kmer
+CREATE FUNCTION contains(qkmer, kmer)
+    RETURNS boolean AS 'MODULE_PATHNAME', 'contains_qkmer_kmer'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+-- '@>' operator for qkmer and kmer
+CREATE OPERATOR @> (
+    LEFTARG = qkmer,
+    RIGHTARG = kmer,
+    PROCEDURE = contains,
+    COMMUTATOR = <@
+);
+
+/******************************************************************************
  * A custom hash function allowing hash-based indexes and hash joins
  in order to implement group by, DISTINCT and COUNT
  SHOULD BE UPDATED WHEN SP-GIST IS IMPLEMENTED
@@ -182,8 +199,6 @@ CREATE FUNCTION kmer_hash(kmer) RETURNS integer
 CREATE OPERATOR CLASS kmer_hash_ops DEFAULT FOR TYPE kmer USING hash AS
     OPERATOR 1 = (kmer, kmer),
     FUNCTION 1 kmer_hash(kmer);
-
-
 
 /******************************************************************************
  * Operators

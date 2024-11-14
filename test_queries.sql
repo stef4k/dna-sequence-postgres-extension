@@ -1,4 +1,4 @@
-DROP EXTENSION IF EXISTS dna_sequence;
+DROP EXTENSION IF EXISTS dna_sequence CASCADE;
 CREATE EXTENSION dna_sequence;
 
 -- check if dna type works
@@ -202,3 +202,73 @@ SELECT sum(count) AS total_count,
 count(*) AS distinct_count,
 count(*) FILTER (WHERE count = 1) AS unique_count
 FROM kmers;
+
+-- Should return true
+SELECT contains('ANGTA'::qkmer, 'AAGTA'::kmer);
+SELECT 'ANGTA'::qkmer @> 'AAGTA'::kmer;
+
+-- Should return false (R is A/G)
+SELECT contains('ARGTA'::qkmer, 'ACGTA'::kmer);
+SELECT 'ARGTA'::qkmer @> 'ACGTA'::kmer;
+
+SELECT contains('ANGTA'::qkmer, 'ACGT'::kmer);   -- Error
+
+SELECT contains('ANXTA'::qkmer, 'ACGTA'::kmer);  -- Error
+
+DROP TABLE kmers;
+CREATE TABLE kmers (kmer kmer);
+
+INSERT INTO kmers (kmer) VALUES
+('ACGCGTA'),
+('CGCGTAC'),
+('GCGTACG'),
+('TACGCGT'),
+('ACGTGCA'),
+('TGCGTAC'),
+('CGTGCGT'),
+('GTACGCG'),
+('TCGACGT'),
+('AGTCGTA'),
+('CGTAGTC'),
+('GTCGATG'),
+('GACTGCA'),
+('CGTAGCT'),
+('GCTAGCA'),
+('TGACTGA'),
+('GCTACGA'),
+('GTACTGA'),
+('CGTAGTA'),
+('GTGACTA'),
+('TACGATA'),
+('CGTAGTG'),
+('TAGCTAG'),
+('CTAGCTA'),
+('AGTACTA'),
+('GACTGTA'),
+('CGTAGTG'),
+('TGACTGA'),
+('TAGCTAC'),
+('GTACTGA'),
+('CAGTCGT'),
+('GTACGTA'),
+('CGTGATA'),
+('GTCGACT'),
+('TACGTCA'),
+('CGTACGA'),
+('TGACGTA'),
+('GATCGAT'),
+('CGTAGTG'),
+('TCGACGA'),
+('AGTCAGT'),
+('TGACTGC'),
+('CAGTACG'),
+('TCGATCG'),
+('GTACGCT'),
+('ACGTGAC'),
+('CGTAGCA'),
+('GACTGTA'),
+('TACGCGT'),
+('TGACGCA');
+
+SELECT * FROM kmers WHERE contains('GTACGHK', kmer);
+SELECT * FROM kmers WHERE 'GTACGHK' @> kmer;

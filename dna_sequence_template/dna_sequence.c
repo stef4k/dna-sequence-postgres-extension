@@ -459,6 +459,82 @@ Datum kmer_starts_with(PG_FUNCTION_ARGS) {
 }
 
 /******************************************************************************
+ * Contains Function for qkmer and kmer
+ ******************************************************************************/
+
+/* Helper functions */
+
+static int nucleotide_to_bits(char c){
+    switch (c) {
+        case 'A': return 1; // 0001
+        case 'C': return 2; // 0010
+        case 'G': return 4; // 0100
+        case 'T': return 8; // 1000
+        default: 
+            ereport(ERROR,
+                (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+                errmsg("Invalid nucleotide character '%c' in kmer", c)));
+            return 0; // Should never reach here                
+    }
+}
+
+static int iupac_code_to_bits(char c) {
+    switch (c) {
+        case 'A': return 1; // A
+        case 'C': return 2; // C
+        case 'G': return 4; // G
+        case 'T': return 8; // T
+        case 'R': return 1|4; // A or G
+        case 'Y': return 2|8; // C or T
+        case 'S': return 2|4; // G or C
+        case 'W': return 1|8; // A or T
+        case 'K': return 4|8; // G or T
+        case 'M': return 1|2; // A or C
+        case 'B': return 2|4|8; // C or G or T
+        case 'D': return 1|4|8; // A or G or T
+        case 'H': return 1|2|8; // A or C or T
+        case 'V': return 1|2|4; // A or C or G
+        case 'N': return 1|2|4|8; // A or C or G or T (any)
+        default:
+            ereport(ERROR,
+                (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+                errmsg("Invalid IUPAC code character '%c' in qkmer", c)));
+            return 0; // Should also never reach here
+    }
+}
+
+PG_FUNCTION_INFO_V1(contains_qkmer_kmer);
+Datum contains_qkmer_kmer(PG_FUNCTION_ARGS) {
+    Qkmer *pattern = (Qkmer *) PG_GETARG_POINTER(0);
+    Kmer *kmer = (Kmer *) PG_GETARG_POINTER(1);
+
+    int32 pattern_len = VARSIZE(pattern) - VARHDRSZ;
+    int32 kmer_len = VARSIZE(kmer) - VARHDRSZ;
+
+    /* Check if lengths are equal */
+    if (pattern_len != kmer_len) {
+        ereport(ERROR,
+            (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+            errmsg("Pattern length (%d) does not match kmer length (%d)", pattern_len, kmer_len)));
+    }
+
+    /* For each position, compare according to IUPAC codes */
+    for (int i =0; i < pattern_len; i++) {
+        char qc = toupper(pattern->data[i]);
+        char kc = toupper(kmer->data[i]);
+
+        int q_bits = iupac_code_to_bits(qc);
+        int k_bits = nucleotide_to_bits(kc);
+
+        if ((q_bits & k_bits) == 0) {
+            PG_RETURN_BOOL(false);
+        }
+    }
+
+    PG_RETURN_BOOL(true);
+}
+
+/******************************************************************************
  * HASH index implementation
  ******************************************************************************/
 
