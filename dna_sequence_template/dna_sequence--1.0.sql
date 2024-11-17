@@ -112,8 +112,9 @@ CREATE OPERATOR = (
     PROCEDURE = equals,
     COMMUTATOR = =,
     NEGATOR = <>,
-    HASHES, --this operator supports hash joins and hashing operations - needed for HASH index
-    MERGES --this operator can be used in merge joins - needed for HASH index
+    HASHES --supports hash joins, not necessary but allows query optimization:
+            -- instead of nested loop uses hash join when joining two kmer tables
+            -- matching the kmers
 );
 
 -- Create the '<>' operator for kmer type
@@ -187,7 +188,6 @@ CREATE OPERATOR @> (
 /******************************************************************************
  * A custom hash function allowing hash-based indexes and hash joins
  in order to implement group by, DISTINCT and COUNT
- SHOULD BE UPDATED WHEN SP-GIST IS IMPLEMENTED
  ******************************************************************************/
 
 -- Create hash function for kmer
