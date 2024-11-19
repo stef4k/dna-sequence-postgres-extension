@@ -1,4 +1,19 @@
--- complain if script is sourced in psql, rather than via CREATE EXTENSION
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-- Complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION dna_sequence" to load this file. \quit
 
 /******************************************************************************
@@ -28,6 +43,47 @@ CREATE TYPE dna_sequence (
     preferred = true
 );
 
+/* Cast Function ****************************************************************/
+
+-- Conversion function from text to dna_sequence
+CREATE OR REPLACE FUNCTION dna_sequence(text)
+    RETURNS dna_sequence
+    AS 'MODULE_PATHNAME', 'dna_in'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Create an implicit cast to allow automatic conversion from text to dna_sequence
+CREATE CAST (text AS dna_sequence) WITH FUNCTION dna_sequence(text) AS IMPLICIT;
+
+/******************************************************************************
+ * Length functions
+ ******************************************************************************/
+
+-- Define the length function for dna_sequence
+CREATE FUNCTION length(dna_sequence)
+    RETURNS integer AS 'MODULE_PATHNAME', 'dna_sequence_length' 
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+/******************************************************************************
+ * Equality functions for dna_sequence
+ ******************************************************************************/
+
+-- Define a function to compare two dna_sequence values for equality
+CREATE FUNCTION dna_sequence_equals(dna_sequence, dna_sequence)
+    RETURNS boolean
+    AS 'MODULE_PATHNAME', 'dna_sequence_equals'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Create the '=' operator for dna_sequence type
+CREATE OPERATOR = (
+    LEFTARG = dna_sequence,
+    RIGHTARG = dna_sequence,
+    PROCEDURE = dna_sequence_equals,
+    COMMUTATOR = '=',
+    NEGATOR = '<>',
+    HASHES,
+    MERGES
+);
+
 /*kmer************************************************************************/
 
 -- Function to convert text to kmer
@@ -50,7 +106,41 @@ CREATE TYPE kmer (
     category = 'S' -- classify as string-like type
 );
 
-/*qkmer***********************************************************************/
+/******************************************************************************
+ * Equality functions for kmer
+ ******************************************************************************/
+
+-- Function to compare two kmers for equality
+CREATE FUNCTION kmer_equals(kmer, kmer)
+    RETURNS boolean AS 'MODULE_PATHNAME', 'kmer_equals'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Function to compare two kmers for inequality
+CREATE FUNCTION kmer_not_equals(kmer, kmer)
+    RETURNS boolean AS 'MODULE_PATHNAME', 'kmer_not_equals'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Create the '=' operator for kmer type
+CREATE OPERATOR = (
+    LEFTARG = kmer,
+    RIGHTARG = kmer,
+    PROCEDURE = kmer_equals,
+    COMMUTATOR = '=',
+    NEGATOR = '<>',
+    HASHES, --this operator supports hash joins and hashing operations - needed for HASH index
+    MERGES --this operator can be used in merge joins - needed for HASH index
+);
+
+-- Create the '<>' operator for kmer type
+CREATE OPERATOR <> (
+    LEFTARG = kmer,
+    RIGHTARG = kmer,
+    PROCEDURE = kmer_not_equals,
+    COMMUTATOR = '<>',
+    NEGATOR = '='
+);
+
+/* qkmer **********************************************************************/
 
 -- Function to convert text to qkmer
 CREATE OR REPLACE FUNCTION qkmer_in(cstring)
@@ -73,70 +163,6 @@ CREATE TYPE qkmer (
 );
 
 /******************************************************************************
- * Length functions
- ******************************************************************************/
-
--- Define the length function for dna_sequence
-CREATE FUNCTION length(dna_sequence)
-    RETURNS integer AS 'MODULE_PATHNAME', 'dna_sequence_length' 
-    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
-
--- Define the length function for kmer
-CREATE FUNCTION length(kmer)
-    RETURNS integer AS 'MODULE_PATHNAME', 'kmer_length' 
-    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
-
--- Define the length function for qkmer
-CREATE FUNCTION length(qkmer)
-    RETURNS integer AS 'MODULE_PATHNAME', 'qkmer_length' 
-    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
-
-/******************************************************************************
- * Equality functions
- ******************************************************************************/
-
- -- Function to compare two kmers for equality
-CREATE FUNCTION equals(kmer, kmer)
-    RETURNS boolean AS 'MODULE_PATHNAME', 'kmer_equals'
-    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
-
--- Function to compare two kmers for inequality
-CREATE FUNCTION not_equals(kmer, kmer)
-    RETURNS boolean AS 'MODULE_PATHNAME', 'kmer_not_equals'
-    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
-
--- Create the '=' operator for kmer type
-CREATE OPERATOR = (
-    LEFTARG = kmer,
-    RIGHTARG = kmer,
-    PROCEDURE = equals,
-    COMMUTATOR = =,
-    NEGATOR = <>,
-    HASHES, --this operator supports hash joins and hashing operations - needed for HASH index
-    MERGES --this operator can be used in merge joins - needed for HASH index
-);
-
--- Create the '<>' operator for kmer type
-CREATE OPERATOR <> (
-    LEFTARG = kmer,
-    RIGHTARG = kmer,
-    PROCEDURE = not_equals,
-    COMMUTATOR = <>,
-    NEGATOR = =
-);
-
--- Function to cast text to kmer
-CREATE FUNCTION kmer(text)
-    RETURNS kmer
-    AS 'MODULE_PATHNAME', 'kmer_cast_text'
-    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
-
--- Create an implicit cast (a cast that the database server can invoke automatically when 
--- it encounters data types that cannot be compared with built-in casts) from text to kmer
--- Needed for the '=' and '<>' operators to work with text
-CREATE CAST (text AS kmer) WITH FUNCTION kmer(text) AS IMPLICIT;
-
-/******************************************************************************
  * Set-Returning Function: generate_kmers
  ******************************************************************************/
 
@@ -146,67 +172,102 @@ CREATE OR REPLACE FUNCTION generate_kmers(dna_sequence, integer)
     AS 'MODULE_PATHNAME', 'generate_kmers'
     LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
-
 /******************************************************************************
- * Starts_with Function
+ * Additional Operator Definitions
  ******************************************************************************/
 
--- !! Order in starts_with() is reversed compared to the requirement, otherwise it can't be used as an operator
-CREATE FUNCTION starts_with(kmer, kmer)
-    RETURNS boolean AS 'MODULE_PATHNAME', 'kmer_starts_with'
+-- Function to cast text to kmer
+CREATE FUNCTION kmer(text)
+    RETURNS kmer
+    AS 'MODULE_PATHNAME', 'kmer_cast_text'
     LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
--- '^@' operator for kmer type
-CREATE OPERATOR ^@ (
-    LEFTARG = kmer,
-    RIGHTARG = kmer,
-    PROCEDURE = starts_with,
-    COMMUTATOR = @^
-);
--- We already have an implicit cast from text to kmer, so that doen't need to be handled here
--- (more info on operators: https://www.postgresql.org/docs/current/sql-createoperator.html)
--- Something to look into in the future: CREATE OPERATOR CLASS (https://www.postgresql.org/docs/current/sql-createopclass.html)
+-- Create an implicit cast from text to kmer
+CREATE CAST (text AS kmer) WITH FUNCTION kmer(text) AS IMPLICIT;
 
-/******************************************************************************
- * Contains Function
- ******************************************************************************/
-
--- Function to test if a qkmer pattern contains a kmer
+-- Add operators for qkmer contains kmer
 CREATE FUNCTION contains(qkmer, kmer)
     RETURNS boolean AS 'MODULE_PATHNAME', 'contains_qkmer_kmer'
     LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
--- '@>' operator for qkmer and kmer
+-- Create the '@>' operator for qkmer type
 CREATE OPERATOR @> (
     LEFTARG = qkmer,
     RIGHTARG = kmer,
     PROCEDURE = contains,
-    COMMUTATOR = <@
+    COMMUTATOR = '<@'
 );
 
 /******************************************************************************
- * A custom hash function allowing hash-based indexes and hash joins
- in order to implement group by, DISTINCT and COUNT
- SHOULD BE UPDATED WHEN SP-GIST IS IMPLEMENTED
+ * Hash function for dna_sequence
  ******************************************************************************/
 
--- Create hash function for kmer
-CREATE FUNCTION kmer_hash(kmer) RETURNS integer
-    AS 'MODULE_PATHNAME', 'kmer_hash'
-    LANGUAGE C IMMUTABLE STRICT;
+-- Define a hash function for dna_sequence type
+CREATE FUNCTION dna_sequence_hash(dna_sequence) RETURNS integer
+    AS 'MODULE_PATHNAME', 'dna_sequence_hash'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
--- Register the kmer type as hashable
-CREATE OPERATOR CLASS kmer_hash_ops DEFAULT FOR TYPE kmer USING hash AS
-    OPERATOR 1 = (kmer, kmer),
-    FUNCTION 1 kmer_hash(kmer);
+-- Register the dna_sequence type as hashable with a hash operator class
+CREATE OPERATOR CLASS dna_sequence_hash_ops DEFAULT FOR TYPE dna_sequence USING hash AS
+    OPERATOR 1 = (dna_sequence, dna_sequence),  -- Equality operator
+    FUNCTION 1 dna_sequence_hash(dna_sequence); -- Hash function
 
 /******************************************************************************
- * Operators
+ * SP-GiST Functions for dna_sequence Indexing
  ******************************************************************************/
 
+-- Create SP-GiST functions and operator class for dna_sequence
+
+CREATE FUNCTION spg_config(internal, internal)
+    RETURNS void
+    AS 'MODULE_PATHNAME', 'spg_config'
+    LANGUAGE c STRICT;
+
+CREATE FUNCTION spg_choose(internal, internal)
+    RETURNS void
+    AS 'MODULE_PATHNAME', 'spg_choose'
+    LANGUAGE c STRICT;
+
+CREATE FUNCTION spg_picksplit(internal, internal)
+    RETURNS void
+    AS 'MODULE_PATHNAME', 'spg_picksplit'
+    LANGUAGE c STRICT;
+
+CREATE FUNCTION spg_inner_consistent(internal, internal)
+    RETURNS void
+    AS 'MODULE_PATHNAME', 'spg_inner_consistent'
+    LANGUAGE c STRICT;
+
+CREATE FUNCTION spg_leaf_consistent(internal, internal)
+    RETURNS boolean
+    AS 'MODULE_PATHNAME', 'spg_leaf_consistent'
+    LANGUAGE c STRICT;
+
+-- Create SP-GiST operator class for dna_sequence
+CREATE OPERATOR CLASS dna_sequence_spgist_ops
+    DEFAULT FOR TYPE dna_sequence USING spgist AS
+    FUNCTION 1 spg_config(internal, internal),
+    FUNCTION 2 spg_choose(internal, internal),
+    FUNCTION 3 spg_picksplit(internal, internal),
+    FUNCTION 4 spg_inner_consistent(internal, internal),
+    FUNCTION 5 spg_leaf_consistent(internal, internal);
+
+    /******************************************************************************
+ * Hash Operator Class for kmer
+ ******************************************************************************/
+
+ CREATE FUNCTION kmer_hash(kmer)
+    RETURNS integer
+    AS 'MODULE_PATHNAME', 'kmer_hash'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Define a hash operator class for kmer
+CREATE OPERATOR CLASS kmer_hash_ops DEFAULT FOR TYPE kmer USING hash AS
+    OPERATOR 1 =(kmer, kmer),  -- Equality operator
+    FUNCTION 1 kmer_hash(kmer); -- Hash function
 
 
-/******************************************************************************/
 
 
-/******************************************************************************/
+
+

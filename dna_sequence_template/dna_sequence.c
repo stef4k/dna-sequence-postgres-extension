@@ -19,6 +19,8 @@
 #include "utils/builtins.h"
 #include "funcapi.h"  // SRF macros
 #include "access/hash.h" // for HASH index implementation - REMOVE LATER
+#include "access/spgist.h"  // Include this header for SP-GiST-related types and functions
+
 
 bool is_valid_dna_string(const char *str);
 bool is_valid_kmer_string(const char *str);
@@ -549,3 +551,148 @@ Datum kmer_hash(PG_FUNCTION_ARGS) {
 
     PG_RETURN_UINT32(hash);
 }
+
+
+
+
+/****************************************************************************
+    SP-GiST Functions for dna_sequence Indexing
+ ******************************************************************************/
+
+/* Config Function for SP-GiST */
+PG_FUNCTION_INFO_V1(spg_config);
+Datum spg_config(PG_FUNCTION_ARGS) {
+    spgConfigIn *cfgin = (spgConfigIn *) PG_GETARG_POINTER(0);
+    spgConfigOut *cfgout = (spgConfigOut *) PG_GETARG_POINTER(1);
+
+    cfgout->prefixType = VOIDOID;  // No prefix used
+    cfgout->labelType = VOIDOID;   // No label used
+    cfgout->leafType = cfgin->attType; // Leaf type matches the attribute type
+    cfgout->canReturnData = true;  // Can reconstruct data from leaf values
+    cfgout->longValuesOK = false;  // Long values are not supported
+
+    PG_RETURN_VOID();
+}
+
+/* Choose Function for SP-GiST */
+PG_FUNCTION_INFO_V1(spg_choose);
+Datum spg_choose(PG_FUNCTION_ARGS) {
+    spgChooseIn *in = (spgChooseIn *) PG_GETARG_POINTER(0);
+    spgChooseOut *out = (spgChooseOut *) PG_GETARG_POINTER(1);
+
+    // For simplicity, let's assume all values go to the same node for now.
+    out->resultType = spgMatchNode;  // This means we want to match an existing node
+    out->result.matchNode.nodeN = 0; // Always choose node 0 for now
+    out->result.matchNode.restDatum = in->leafDatum;
+
+    PG_RETURN_VOID();
+}
+
+/* Picksplit Function for SP-GiST */
+PG_FUNCTION_INFO_V1(spg_picksplit);
+Datum spg_picksplit(PG_FUNCTION_ARGS) {
+    spgPickSplitIn *in = (spgPickSplitIn *) PG_GETARG_POINTER(0);
+    spgPickSplitOut *out = (spgPickSplitOut *) PG_GETARG_POINTER(1);
+
+    // Simple implementation: split data into two nodes
+    out->nNodes = 2;
+    out->hasPrefix = false;
+    out->nodeLabels = NULL;
+
+    // Divide tuples evenly between the two nodes
+    out->mapTuplesToNodes = palloc(sizeof(int) * in->nTuples);
+    for (int i = 0; i < in->nTuples; i++) {
+        out->mapTuplesToNodes[i] = i % 2;  // Even index tuples to node 0, odd to node 1
+    }
+
+    PG_RETURN_VOID();
+}
+
+/* Inner Consistent Function for SP-GiST */
+PG_FUNCTION_INFO_V1(spg_inner_consistent);
+Datum spg_inner_consistent(PG_FUNCTION_ARGS) {
+    spgInnerConsistentIn *in = (spgInnerConsistentIn *) PG_GETARG_POINTER(0);
+    spgInnerConsistentOut *out = (spgInnerConsistentOut *) PG_GETARG_POINTER(1);
+
+    out->nNodes = 1;  // Always visit one node for now
+    out->nodeNumbers = palloc(sizeof(int));
+    out->nodeNumbers[0] = 0;
+
+    PG_RETURN_VOID();
+}
+
+/* Leaf Consistent Function for SP-GiST */
+PG_FUNCTION_INFO_V1(spg_leaf_consistent);
+Datum spg_leaf_consistent(PG_FUNCTION_ARGS) {
+    spgLeafConsistentIn *in = (spgLeafConsistentIn *) PG_GETARG_POINTER(0);
+    spgLeafConsistentOut *out = (spgLeafConsistentOut *) PG_GETARG_POINTER(1);
+
+    Dna_sequence *leaf = (Dna_sequence *) DatumGetPointer(in->leafDatum);
+
+    // For now, just return true for all matches
+    out->recheck = false;
+    PG_RETURN_BOOL(true);
+}
+
+
+/* Equals Function for dna_sequence */
+PG_FUNCTION_INFO_V1(dna_sequence_equals);
+Datum dna_sequence_equals(PG_FUNCTION_ARGS) {
+    Dna_sequence *seq1 = (Dna_sequence *) PG_GETARG_POINTER(0);
+    Dna_sequence *seq2 = (Dna_sequence *) PG_GETARG_POINTER(1);
+
+    int32 len1 = VARSIZE(seq1) - VARHDRSZ;
+    int32 len2 = VARSIZE(seq2) - VARHDRSZ;
+
+    if (len1 != len2) {
+        PG_RETURN_BOOL(false);
+    }
+
+    if (memcmp(seq1->data, seq2->data, len1) == 0) {
+        PG_RETURN_BOOL(true);
+    } else {
+        PG_RETURN_BOOL(false);
+    }
+}
+
+/******************************************************************************
+ * HASH function for dna_sequence type
+ ******************************************************************************/
+
+/* Compute a hash value based on the contents of the dna_sequence data type */
+PG_FUNCTION_INFO_V1(dna_sequence_hash);
+Datum dna_sequence_hash(PG_FUNCTION_ARGS) {
+    Dna_sequence *seq = (Dna_sequence *) PG_GETARG_POINTER(0);
+    int32 length = VARSIZE(seq) - VARHDRSZ;
+
+    /* Compute hash using PostgreSQL's hash_any function */
+    uint32 hash = hash_any((unsigned char *) seq->data, length);
+
+    PG_RETURN_UINT32(hash);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
