@@ -18,7 +18,7 @@
 #include "utils/fmgrprotos.h"
 #include "utils/builtins.h"
 #include "funcapi.h"  // SRF macros
-#include "access/hash.h" // for HASH
+#include "access/hash.h" // for HASH index implementation - REMOVE LATER
 
 bool is_valid_dna_string(const char *str);
 bool is_valid_kmer_string(const char *str);
