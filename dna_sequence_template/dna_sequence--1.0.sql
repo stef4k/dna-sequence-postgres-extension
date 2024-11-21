@@ -24,8 +24,7 @@ CREATE TYPE dna_sequence (
     internallength = VARIABLE,
     input = dna_in,
     output = dna_out,
-    category = 'S', -- to classify it as a string-like type
-    preferred = true
+    category = 'S' -- to classify it as a string-like type
 );
 
 /*kmer************************************************************************/
@@ -101,11 +100,6 @@ LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 CREATE FUNCTION spg_kmer_leaf_consistent(internal, internal)
 RETURNS bool
 AS 'MODULE_PATHNAME', 'spg_kmer_leaf_consistent'
-LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
-
-CREATE FUNCTION spg_kmer_compress(internal)
-RETURNS internal
-AS 'MODULE_PATHNAME', 'spg_kmer_compress'
 LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
 /******************************************************************************
@@ -265,13 +259,12 @@ CREATE OPERATOR CLASS kmer_hash_ops DEFAULT FOR TYPE kmer USING hash AS
 
 CREATE OPERATOR CLASS spgist_kmer_ops
 DEFAULT FOR TYPE kmer USING spgist AS
-    OPERATOR 3 = (kmer, kmer),
-    OPERATOR 6 ^@ (kmer, kmer),
-    OPERATOR 7 @> (qkmer, kmer),
+    OPERATOR 1 = (kmer, kmer),
+    OPERATOR 2 ^@ (kmer, kmer),
+    OPERATOR 3 @> (qkmer, kmer),
     FUNCTION 1 spg_kmer_config(internal, internal),
     FUNCTION 2 spg_kmer_choose(internal, internal),
     FUNCTION 3 spg_kmer_picksplit(internal, internal),
     FUNCTION 4 spg_kmer_inner_consistent(internal, internal),
-    FUNCTION 5 spg_kmer_leaf_consistent(internal, internal),
-    FUNCTION 6 spg_kmer_compress(internal);
-    -- storage: type of storage for the index
+    FUNCTION 5 spg_kmer_leaf_consistent(internal, internal);
+    -- storage: type of storage for the index if compressions is needed
