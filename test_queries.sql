@@ -203,6 +203,23 @@ count(*) AS distinct_count,
 count(*) FILTER (WHERE count = 1) AS unique_count
 FROM kmers;
 
+-- Check GROUP BY and COUNT for canonical kmer data type
+SELECT canonical(k.kmer), count(*)
+FROM generate_kmers('ATCGATCAC', 3) AS k(kmer)
+GROUP BY canonical(k.kmer)
+ORDER BY count(*) DESC;
+
+-- Check total, distinct and unique count of canonical kmer sequence
+WITH canonical_kmers AS (
+SELECT canonical(k.kmer), count(*)
+FROM generate_kmers('ATCGATCAC', 3) AS k(kmer)
+GROUP BY canonical(k.kmer)
+)
+SELECT sum(count) AS total_count,
+count(*) AS distinct_count,
+count(*) FILTER (WHERE count = 1) AS unique_count
+FROM canonical_kmers;
+
 -- Should return true
 SELECT contains('ANGTA'::qkmer, 'AAGTA'::kmer);
 SELECT 'ANGTA'::qkmer @> 'AAGTA'::kmer;

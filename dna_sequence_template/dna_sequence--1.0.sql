@@ -237,6 +237,14 @@ CREATE OPERATOR @> (
 );
 
 /******************************************************************************
+ * Canonical Function
+ ******************************************************************************/
+
+CREATE FUNCTION canonical(kmer)
+    RETURNS kmer AS 'MODULE_PATHNAME', 'canonical_kmer'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+/******************************************************************************
  * A custom hash function allowing hash-based indexes and hash joins
  in order to implement group by, DISTINCT and COUNT
  ******************************************************************************/

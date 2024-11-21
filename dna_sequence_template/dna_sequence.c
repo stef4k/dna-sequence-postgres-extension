@@ -462,6 +462,54 @@ Datum kmer_starts_with(PG_FUNCTION_ARGS) {
 }
 
 /******************************************************************************
+ * Canonical Function for kmer. Based on DNA theory canonical DNA is the
+ lexicographically smaller representation of a DNA k-mer and its reverse
+ complement (in other words alphabetically sorted, the one that comes first).
+ The reverse complement is obtained by reversing the sequence and 
+ replacing each kmer character with its complement: A ↔ T , C ↔ G
+ For example, if GAT is the kmer, the reverse complement is ATC and the 
+ canonical is also ATC since it is lexicographically smaller than GAT
+ In detail this function:
+ - iterates in reverse over the kmer with a for loop
+ - finds the reverse complement of the k-mer
+ - compares the k-mer and the reverse coomplement and returns the smaller one 
+ ******************************************************************************/
+
+PG_FUNCTION_INFO_V1(canonical_kmer);
+Datum canonical_kmer(PG_FUNCTION_ARGS) {
+    Kmer *kmer = (Kmer *) PG_GETARG_POINTER(0);
+    int32 len = VARSIZE(kmer) - VARHDRSZ;
+    char *input = VARDATA(kmer);       // Gets the actual string data
+    char *reverse_complement = palloc(len + VARHDRSZ);   // Allocate space for the reverse complement
+
+    SET_VARSIZE(reverse_complement, len + VARHDRSZ);     // Set the size of the reverse_complement text object
+
+    // iterates over the input string in reverse order 
+    for (int i = 0; i < len; i++) {
+        char ch = input[len - 1 - i];
+        switch (ch) {
+            // Maps each kmer character to its complement A<->T, C<->G
+            case 'A': reverse_complement[VARHDRSZ + i] = 'T'; break;
+            case 'T': reverse_complement[VARHDRSZ + i] = 'A'; break;
+            case 'C': reverse_complement[VARHDRSZ + i] = 'G'; break;
+            case 'G': reverse_complement[VARHDRSZ + i] = 'C'; break;
+            default:
+            // if there is a character other than 'A', 'T', 'C', or 'G', the function throws an error
+                ereport(ERROR, 
+                        (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+                         errmsg("Invalid character '%c' in kmer string", ch)));
+        }
+    }
+
+    // strcmp compares the kmer and the reverse_complement string lexicographically
+    if (strcmp(input, reverse_complement + VARHDRSZ) < 0) {
+        PG_RETURN_TEXT_P((text *) kmer); // Return the original kmer
+    } else {
+        PG_RETURN_TEXT_P((text *) reverse_complement); // Return the reverse_complement
+    }
+
+}
+/******************************************************************************
  * Contains Function for qkmer and kmer
  ******************************************************************************/
 
