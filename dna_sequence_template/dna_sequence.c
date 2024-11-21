@@ -494,7 +494,7 @@ Datum canonical_kmer(PG_FUNCTION_ARGS) {
     char *input = VARDATA(kmer);       // Gets the actual string data
     char *reverse_complement = palloc(len + VARHDRSZ);   // Allocate space for the reverse complement
 
-    SET_VARSIZE(reverse_complement, len + VARHDRSZ);     // Set the size of the reverse_complement text object
+    SET_VARSIZE(reverse_complement, len + VARHDRSZ);     // Set the size of the reverse_complement (same as kmer)
 
     // iterates over the input string in reverse order 
     for (int i = 0; i < len; i++) {
@@ -656,11 +656,6 @@ typedef struct spgNodePtr
     int16       c;
 } spgNodePtr;
 
-static inline int
-pg_cmp_s16(int16 a, int16 b)
-{
-    return (int32) a - (int32) b;
-}
 
 /* Function declarations */
 PG_FUNCTION_INFO_V1(spg_kmer_config);
