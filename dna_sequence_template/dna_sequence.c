@@ -494,8 +494,6 @@ Datum canonical_kmer(PG_FUNCTION_ARGS) {
     char *input = VARDATA(kmer);       // Gets the actual string data
     char *reverse_complement = palloc(len + VARHDRSZ);   // Allocate space for the reverse complement
 
-    SET_VARSIZE(reverse_complement, len + VARHDRSZ);     // Set the size of the reverse_complement (same as kmer)
-
     // iterates over the input string in reverse order 
     for (int i = 0; i < len; i++) {
         char ch = input[len - 1 - i];
@@ -514,10 +512,17 @@ Datum canonical_kmer(PG_FUNCTION_ARGS) {
     }
 
     // strcmp compares the kmer and the reverse_complement string lexicographically
-    if (strcmp(input, reverse_complement + VARHDRSZ) < 0) {
-        PG_RETURN_TEXT_P((text *) kmer); // Return the original kmer
+    if (strcmp(input, reverse_complement + VARHDRSZ) <= 0) {
+        // Case that original kmer comes alphabetically before reverse complement
+        PG_RETURN_POINTER(kmer); // Returns the pointer to the original kmer
     } else {
-        PG_RETURN_TEXT_P((text *) reverse_complement); // Return the reverse_complement
+        // Case that original kmer comes alphabetically after reverse complement
+        Kmer *reverse_complement_result;
+        reverse_complement_result = (Kmer *) palloc(VARHDRSZ + len);  // Memory Allocation to reverse_complement_result
+        SET_VARSIZE(reverse_complement_result, VARHDRSZ + len); //Sets the total size of the variable-length object, including its header and data
+        memcpy(reverse_complement_result->data, reverse_complement + VARHDRSZ, len); // Transfers the string into the kmer type reverse_complement_result
+        pfree(reverse_complement); // Frees the memory allocated to the string
+        PG_RETURN_POINTER(reverse_complement_result); // Returns the pointer to reverse_complement
     }
 
 }
