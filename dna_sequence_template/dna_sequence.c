@@ -20,6 +20,11 @@
 #include "funcapi.h"  // SRF macros
 #include "access/hash.h" // for HASH
 
+#include "access/spgist.h" // for SP-GiST
+#include "catalog/pg_type.h" // for SP-GiST
+#include "utils/datum.h" // for SP-GiST
+#include "utils/pg_locale.h" // for SP-GiST
+
 bool is_valid_dna_string(const char *str);
 bool is_valid_kmer_string(const char *str);
 bool is_valid_qkmer_string(const char *str);
@@ -442,11 +447,9 @@ Datum kmer_starts_with(PG_FUNCTION_ARGS) {
     int32 prefix_len = VARSIZE(prefix) - VARHDRSZ;
     int32 kmer_len = VARSIZE(kmer) - VARHDRSZ;
 
-    /* Check if prefix length is greater than kmer length */
+    /* If prefix length is greater than kmer length, return false */
     if (prefix_len > kmer_len) {
-        ereport(ERROR,
-            (errcode (ERRCODE_INVALID_PARAMETER_VALUE),
-            errmsg("Prefix length (%d) is greater than kmer length (%d)", prefix_len, kmer_len)));
+        PG_RETURN_BOOL(false);
     }
 
     /* Compare (prefix_len bytes of) kmer->data and prefix->data */
@@ -511,11 +514,8 @@ Datum contains_qkmer_kmer(PG_FUNCTION_ARGS) {
     int32 pattern_len = VARSIZE(pattern) - VARHDRSZ;
     int32 kmer_len = VARSIZE(kmer) - VARHDRSZ;
 
-    /* Check if lengths are equal */
     if (pattern_len != kmer_len) {
-        ereport(ERROR,
-            (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-            errmsg("Pattern length (%d) does not match kmer length (%d)", pattern_len, kmer_len)));
+        PG_RETURN_BOOL(false);
     }
 
     /* For each position, compare according to IUPAC codes */
@@ -548,4 +548,574 @@ Datum kmer_hash(PG_FUNCTION_ARGS) {
     uint32 hash = hash_any((unsigned char *) kmer->data, length);
 
     PG_RETURN_UINT32(hash);
+}
+
+
+/******************************************************************************
+ * SP-GiST index implementation
+ ******************************************************************************/
+
+
+/* spgkmerproc.c
+ *
+ * Implementation of radix tree (trie) over kmer
+ * 
+ * In a kmer_ops SPGiST index, inner tuples can have a prefix which is the
+ * common prefix of all kmers indexed under that tuple. The node labels
+ * represent the next character of the kmer(s) after the prefix.
+ *
+ * To reconstruct the indexed kmer for any index entry, concatenate the
+ * inner-tuple prefixes and node labels starting at the root and working
+ * down to the leaf entry, then append the datum in the leaf entry.
+ *
+ */
+
+PG_FUNCTION_INFO_V1(spg_kmer_config);
+Datum
+spg_kmer_config(PG_FUNCTION_ARGS) {
+    spgConfigIn *cfgin = (spgConfigIn *) PG_GETARG_POINTER(0);
+    spgConfigOut *cfg = (spgConfigOut *) PG_GETARG_POINTER(1);
+
+    cfg->prefixType = TEXTOID;
+    cfg->labelType = CHAROID;
+    cfg->leafType = cfgin->attType;
+    cfg->canReturnData = true; /* allow for reconstructon of original kmers */
+    cfg->longValuesOK = false; /* kmers have limited length of 32 */
+    /* picksplit can be applied to a single leaf tuple only in the case that the config function 
+     * set longValuesOK to true and a larger-than-a-page input value has been supplied. */
+
+    PG_RETURN_VOID();
+}
+
+/* Find common prefix length (of two strings) */
+static int
+commonPrefix(const char *a, const char *b, int lena, int lenb) {
+    int i = 0;
+
+    while (i < lena && i < lenb && a[i] == b[i])
+        i++;
+
+    return i;
+}
+
+/* Search for a character c' in an array of node labels. (using binary search) */
+static bool
+searchChar(Datum *nodeLabels, int nNodes, char c, int *i)
+{
+    int low = 0, high = nNodes;
+
+    while (low < high)
+    {
+        int mid = (low + high) / 2;
+        char middle = DatumGetChar(nodeLabels[mid]);
+
+        if (c < middle)
+            high = mid;
+        else if (c > middle)
+            low = mid + 1;
+        else    /* c == middle */ 
+        {
+            *i = mid;
+            return true;
+        }
+    }
+
+    *i = high;
+    return false;
+}
+
+/* The choose function can determine either that the new value matches one of the
+existing child nodes, or that a new child node must be added, or that the new value is inconsistent with the
+tuple prefix and so the inner tuple must be split to create a less restrictive prefix.
+Source: https://www.postgresql.org/docs/current/spgist.html */
+
+/* Determines the action to take when inserting a kmer.
+If the prefix matches:
+Continues down the tree by matching the next character.
+If the prefix diverges:
+Splits the current node to accommodate the new kmer.
+Creates new nodes or adjusts prefixes.
+Handles all-the-same nodes:
+If all entries are the same, it may need to split to maintain the tree structure.*/
+
+PG_FUNCTION_INFO_V1(spg_kmer_choose);
+Datum
+spg_kmer_choose(PG_FUNCTION_ARGS)
+{
+    spgChooseIn *in = (spgChooseIn *) PG_GETARG_POINTER(0); // The first argument is a pointer to a spgChooseIn C struct, containing input data for the function.
+    spgChooseOut *out = (spgChooseOut *) PG_GETARG_POINTER(1); // The second argument is a pointer to a spgChooseOut C struct, which the function must fill with result data.
+    
+    // See the struct documentation for this and all the following functions here: https://www.postgresql.org/docs/current/spgist.html
+    
+    text *inText = DatumGetTextPP(in->leafDatum);
+    char *inStr = VARDATA_ANY(inText);
+    int inSize = VARSIZE_ANY_EXHDR(inText);
+    text *prefixText = NULL;
+    char *prefixStr = NULL;
+    int prefixSize = 0;
+    int commonLen = 0;
+    char nodeChar = '\0';
+    int i;
+    int offset;
+
+    /* Check for prefix match, set nodeChar to first byte after prefix */
+    if (in->hasPrefix)
+    {
+        prefixText = DatumGetTextPP(in->prefixDatum);
+        prefixStr = VARDATA_ANY(prefixText);
+        prefixSize = VARSIZE_ANY_EXHDR(prefixText);
+
+        commonLen = commonPrefix(inStr, prefixStr, inSize, prefixSize);
+
+        if (commonLen == prefixSize)
+        {
+            /* Entire prefix matches, determine next character */
+            if (inSize > commonLen)
+                nodeChar = inStr[commonLen];
+            else
+                nodeChar = '\0';
+        }
+        else
+        {
+            /* Must split tuple because incoming value doesn't match prefix */
+            out->resultType = spgSplitTuple; // If the new value is inconsistent with the tuple prefix, set resultType to spgSplitTuple.
+
+            /* Set up the new prefix */
+            if (commonLen > 0)
+            {
+                out->result.splitTuple.prefixHasPrefix = true;
+                out->result.splitTuple.prefixPrefixDatum =
+                    PointerGetDatum(cstring_to_text_with_len(prefixStr, commonLen));
+            }
+            else
+            {
+                out->result.splitTuple.prefixHasPrefix = false;
+            }
+
+            /* Set up node labels for the split */
+            out->result.splitTuple.prefixNNodes = 2;
+            out->result.splitTuple.prefixNodeLabels =
+                (Datum *) palloc(sizeof(Datum) * 2);
+            out->result.splitTuple.prefixNodeLabels[0] = CharGetDatum(prefixStr[commonLen]);
+            out->result.splitTuple.prefixNodeLabels[1] = CharGetDatum(inStr[commonLen]);
+
+             /* Indicate which node to descend into. */
+            out->result.splitTuple.childNodeN = 1; // The new value goes to the second node
+
+            /* Set up postfix prefix for the lower-level tuple */
+            if (prefixSize > commonLen + 1)
+            {
+                out->result.splitTuple.postfixHasPrefix = true;
+                out->result.splitTuple.postfixPrefixDatum =
+                    PointerGetDatum(cstring_to_text_with_len(prefixStr + commonLen + 1, prefixSize - (commonLen + 1)));
+            }
+            else
+            {
+                out->result.splitTuple.postfixHasPrefix = false;
+            }
+
+            PG_RETURN_VOID();
+        }
+    }
+    else if (inSize > 0)
+    {
+         /* No prefix, take first character as node label. */
+        nodeChar = inStr[0];
+    }
+    else
+    {
+        /* Empty kmer (should not happen), use '\0' */
+        nodeChar = '\0';
+    }
+
+    /* Look up nodeChar in the node label array */
+    if (searchChar(in->nodeLabels, in->nNodes, nodeChar, &i))
+    {
+        // If the new value matches one of the existing child nodes, set resultType to spgMatchNode.
+        out->resultType = spgMatchNode;
+        // Set nodeN to the index (from zero) of that node in the node array.
+        out->result.matchNode.nodeN = i;
+        // Set levelAdd to the increment in level caused by descending through that node, or leave it as zero if the operator class does not use levels.
+        out->result.matchNode.levelAdd = (nodeChar == '\0') ? 0 : 1; 
+        /* Set restDatum to equal leafDatum if the operator class does not modify datums from one level to the
+        next, or otherwise set it to the modified value to be used as leafDatum at the next level. */
+        offset = (in->hasPrefix ? prefixSize : 0) + out->result.matchNode.levelAdd;
+        if (inSize > offset)
+        {
+            out->result.matchNode.restDatum =
+                PointerGetDatum(cstring_to_text_with_len(inStr + offset, inSize - offset));
+        }
+        else
+        {
+            out->result.matchNode.restDatum = PointerGetDatum(cstring_to_text(""));
+        }
+    }
+    else if (in->allTheSame)
+    {
+        /* If the new value is inconsistent with the tuple prefix, set resultType to spgSplitTuple. 
+        This action moves all the existing nodes into a new lower-level inner tuple, and replaces 
+        the existing inner tuple with a tuple having a single downlink pointing to the new lower-level inner tuple. */
+        out->resultType = spgSplitTuple;
+        // Set prefixHasPrefix to indicate whether the new upper tuple should have a prefix.
+        out->result.splitTuple.prefixHasPrefix = in->hasPrefix;
+        /* If so, set prefixPrefixDatum to the prefix value. This new prefix value must be sufficiently
+         less restrictive than the original to accept the new value to be indexed. */
+        out->result.splitTuple.prefixPrefixDatum = in->prefixDatum;
+        // Set prefixNNodes to the number of nodes needed in the new tuple.
+        out->result.splitTuple.prefixNNodes = 2;
+        // Set prefixNodeLabels to a palloc'd array holding their labels.
+        out->result.splitTuple.prefixNodeLabels =
+            (Datum *) palloc(sizeof(Datum) * 2);
+        out->result.splitTuple.prefixNodeLabels[0] = in->nodeLabels[0];
+        out->result.splitTuple.prefixNodeLabels[1] = CharGetDatum(nodeChar);
+        // Set childNodeN to the index (from zero) of the node that will downlink to the new lower-level inner tuple.
+        out->result.splitTuple.childNodeN = 1;
+        /* Set postfixHasPrefix to indicate whether the new lower-level inner tuple should have a prefix,
+        and if so setpostfixPrefixDatum to the prefix value (not in this case). */
+        out->result.splitTuple.postfixHasPrefix = false;
+
+        PG_RETURN_VOID();
+    }
+    else
+    {
+        /* Add a node for the not-previously-seen nodeChar value */
+        out->resultType = spgAddNode; // If a new child node must be added, set resultType to spgAddNode.
+        out->result.addNode.nodeLabel = CharGetDatum(nodeChar); // Set nodeLabel to the label to be used for the new node
+        out->result.addNode.nodeN = i; // set nodeN to the index (from zero) at which to insert the node in the node array
+    }
+
+    PG_RETURN_VOID();
+}
+
+// Used in the PickSplit function to sort kmers based on their next character.
+typedef struct spgKmerNode
+{
+    Datum d; /* Datum (kmer string) */
+    int i; /* Original index in the input array */
+    char c; /* Character at the split position */
+} spgKmerNode;
+
+// Comparison function for qsort in spg_kmer_picksplit.
+static int
+cmpKmerNode(const void *a, const void *b)
+{
+    spgKmerNode *aa = (spgKmerNode *) a;
+    spgKmerNode *bb = (spgKmerNode *) b;
+
+    return (aa->c - bb->c);
+}
+
+/* Decides how to create a new inner tuple over a set of leaf tuples. */
+PG_FUNCTION_INFO_V1(spg_kmer_picksplit);
+Datum
+spg_kmer_picksplit(PG_FUNCTION_ARGS)
+{
+    spgPickSplitIn *in = (spgPickSplitIn *) PG_GETARG_POINTER(0); // The first argument is a pointer to a spgPickSplitIn C struct, containing input data for the function.
+    spgPickSplitOut *out = (spgPickSplitOut *) PG_GETARG_POINTER(1); // The second argument is a pointer to a spgPickSplitOut C struct, which the function must fill with result data.
+    int i, commonLen;
+    spgKmerNode *nodes;
+    char *str;
+    int len;
+
+    /// Find common prefix from all input kmers
+    text *firstText = DatumGetTextPP(in->datums[0]);
+    char *firstStr = VARDATA_ANY(firstText);
+    int firstLen = VARSIZE_ANY_EXHDR(firstText);
+    commonLen = firstLen;
+
+    /* If more than one leaf tuple is supplied, it is expected that the picksplit function will
+    classify them into more than one node; otherwise it is not possible to split the leaf tuples
+    across multiple pages, which is the ultimate purpose of this operation.
+    (otherwise the core SP-GiST code will override that decision and generate an inner tuple in which
+    the leaf tuples are assigned at random to several identically-labeled nodes) */
+    for (i = 1; i < in->nTuples && commonLen > 0; i++)
+    {
+        text *currText = DatumGetTextPP(in->datums[i]);
+        char *currStr = VARDATA_ANY(currText);
+        int currLen = VARSIZE_ANY_EXHDR(currText);
+        int tmpLen = commonPrefix(firstStr, currStr, firstLen, currLen);
+        if (tmpLen < commonLen)
+            commonLen = tmpLen;
+    }
+
+    // Set prefix if commonLen > 0
+    if (commonLen > 0)
+    {
+        out->hasPrefix = true;
+        out->prefixDatum = PointerGetDatum(cstring_to_text_with_len(firstStr, commonLen));
+    }
+    else
+    {
+        out->hasPrefix = false;
+    }
+
+    // Prep nodes for sort
+    nodes = (spgKmerNode *) palloc(sizeof(spgKmerNode) * in->nTuples);
+
+    for (i = 0; i < in->nTuples; i++)
+    {
+        text *strText = DatumGetTextPP(in->datums[i]);
+        str = VARDATA_ANY(strText);
+        len = VARSIZE_ANY_EXHDR(strText);
+
+        if (commonLen < len)
+            nodes[i].c = str[commonLen];
+        else
+            nodes[i].c = '\0'; /* No more characters */
+        nodes[i].d = in->datums[i];
+        nodes[i].i = i;
+    }
+
+    /* Sort nodes by char to group by node labels */
+    qsort(nodes, in->nTuples, sizeof(spgKmerNode), cmpKmerNode);
+
+    // Set nNodes to indicate the number of nodes that the new inner tuple will contain
+    out->nNodes = 0;
+    // Set nodeLabels to an array of their label values.
+    out->nodeLabels = (Datum *) palloc(sizeof(Datum) * in->nTuples);
+    // Set mapTuplesToNodes to an array that gives the index (from zero) of the node that each leaf tuple should be assigned to.
+    out->mapTuplesToNodes = (int *) palloc(sizeof(int) * in->nTuples);
+    /* Set leafTupleDatums to an array of the values to be stored in the new leaf tuples (these will be the 
+    same as the input datums if the operator class does not modify datums from one level to the next).*/
+    out->leafTupleDatums = (Datum *) palloc(sizeof(Datum) * in->nTuples);
+
+    // (the picksplit function is responsible for palloc'ing the nodeLabels, mapTuplesToNodes and leafTupleDatums arrays)
+
+    // Build nodes -> map tuples to nodes
+    for (i = 0; i < in->nTuples; i++)
+    {
+        text *texti = NULL;
+        // If new node label, add to nodeLabels
+        if (i == 0 || nodes[i].c != nodes[i - 1].c)
+        {
+            out->nodeLabels[out->nNodes] = CharGetDatum(nodes[i].c);
+            out->nNodes++;
+        }
+
+        // Prep leaf datum for each tuple (remaining string after prefix and node char)
+        texti = DatumGetTextPP(nodes[i].d);
+        str = VARDATA_ANY(texti);
+        len = VARSIZE_ANY_EXHDR(texti);
+
+        if (commonLen + 1 < len)
+            out->leafTupleDatums[nodes[i].i] =
+                PointerGetDatum(cstring_to_text_with_len(str + commonLen + 1, len - (commonLen + 1)));
+        else
+            out->leafTupleDatums[nodes[i].i] = PointerGetDatum(cstring_to_text(""));
+
+        out->mapTuplesToNodes[nodes[i].i] = out->nNodes - 1;
+    }
+
+    PG_RETURN_VOID();
+}
+
+
+/* Returns set of nodes (branches) to follow during tree search. */
+/* SP-GiST core code handles most of the search logic, but the choose
+function must provide the core with the set of nodes to follow during the search. */
+
+// !!! IN THIS IMPLEMENTATION, IT PREPARES TO VISIT ALL POSSIBLE CHILD NODES, THIS WILL HAVE TO BE WRITTEN PROPERLY LATER !!!
+PG_FUNCTION_INFO_V1(spg_kmer_inner_consistent);
+Datum
+spg_kmer_inner_consistent(PG_FUNCTION_ARGS)
+{
+    spgInnerConsistentIn *in = (spgInnerConsistentIn *) PG_GETARG_POINTER(0); // The first argument is a pointer to a spgInnerConsistentIn C struct, containing input data for the function.
+    spgInnerConsistentOut *out = (spgInnerConsistentOut *) PG_GETARG_POINTER(1); // The second argument is a pointer to a spgInnerConsistentOut C struct, which the function must fill with result data.
+
+    int i;
+
+    // nNodes must be set to the number of child nodes that need to be visited by the search.
+    out->nNodes = 0;
+    // nodeNumbers must be set to an array of their indexes.
+    out->nodeNumbers = (int *) palloc(sizeof(int) * in->nNodes);
+    /* If the operator class keeps track of levels, set levelAdds to an array of the level 
+    increments required when descending to each node to be visited.
+    (Often these increments will be the same for all the nodes, but that's not necessarily so, so an array is used.) */
+    out->levelAdds = (int *) palloc(sizeof(int) * in->nNodes);
+    /* If value reconstruction is needed, set reconstructedValues to an array of the values 
+    reconstructed for each child node to be visited; otherwise, leave reconstructedValues as NULL. 
+    The reconstructed values are assumed to be of type spgConfigOut.leafType.*/
+    out->reconstructedValues = (Datum *) palloc(sizeof(Datum) * in->nNodes);
+
+    for (i = 0; i < in->nNodes; i++)
+    {
+        out->nodeNumbers[out->nNodes] = i;
+        out->levelAdds[out->nNodes] = (DatumGetChar(in->nodeLabels[i]) == '\0') ? 0 : 1;
+
+        /* Reconstruct the value up to this point */
+        if (DatumGetPointer(in->reconstructedValue))
+        {
+            text *reconText = DatumGetTextPP(in->reconstructedValue);
+            int reconLen = VARSIZE_ANY_EXHDR(reconText);
+            char *reconData = VARDATA_ANY(reconText);
+            char nodeChar = DatumGetChar(in->nodeLabels[i]);
+
+            /* Allocate new reconstr. value */
+            int newReconLen = reconLen + ((nodeChar == '\0') ? 0 : 1);
+            text *newReconText = (text *) palloc(VARHDRSZ + newReconLen);
+            SET_VARSIZE(newReconText, VARHDRSZ + newReconLen);
+            memcpy(VARDATA(newReconText), reconData, reconLen);
+            if (nodeChar != '\0')
+                VARDATA(newReconText)[reconLen] = nodeChar;
+
+            out->reconstructedValues[out->nNodes] = PointerGetDatum(newReconText);
+        }
+        else
+        {
+            char nodeChar = DatumGetChar(in->nodeLabels[i]);
+
+            /* Start a new reconstr. value */
+            if (nodeChar != '\0')
+            {
+                text *newReconText = (text *) palloc(VARHDRSZ + 1);
+                SET_VARSIZE(newReconText, VARHDRSZ + 1);
+                VARDATA(newReconText)[0] = nodeChar;
+
+                out->reconstructedValues[out->nNodes] = PointerGetDatum(newReconText);
+            }
+            else
+            {
+                /* Empty text */
+                out->reconstructedValues[out->nNodes] = PointerGetDatum(cstring_to_text(""));
+            }
+        }
+
+        out->nNodes++;
+    }
+
+    PG_RETURN_VOID();
+}
+
+/* Returns true if a leaf tuple satisfies a query. */
+PG_FUNCTION_INFO_V1(spg_kmer_leaf_consistent);
+Datum
+spg_kmer_leaf_consistent(PG_FUNCTION_ARGS)
+{
+    spgLeafConsistentIn *in = (spgLeafConsistentIn *) PG_GETARG_POINTER(0); // The first argument is a pointer to a spgLeafConsistentIn C struct, containing input data for the function.
+    spgLeafConsistentOut *out = (spgLeafConsistentOut *) PG_GETARG_POINTER(1); // The second argument is a pointer to a spgLeafConsistentOut C struct, which the function must fill with result data.
+
+    /* The function must return true if the leaf tuple matches the query, or false if not. */
+    bool res = true;
+    text *leafText = DatumGetTextPP(in->leafDatum);
+    char *leafValue = VARDATA_ANY(leafText);
+    int leafLen = VARSIZE_ANY_EXHDR(leafText);
+    char *fullValue;
+    int fullLen;
+    int j;
+
+    /* In the true case, if returnData is true then leafValue must be set to the value (of type 
+    spgConfigIn.attType) originally supplied to be indexed for this leaf tuple. 
+    => reconstruct the full kmer value */
+    if (DatumGetPointer(in->reconstructedValue))
+    {
+        text *reconText = DatumGetTextPP(in->reconstructedValue);
+        char *reconstructed = VARDATA_ANY(reconText);
+        int reconLen = VARSIZE_ANY_EXHDR(reconText);
+        fullLen = reconLen + leafLen;
+        fullValue = (char *) palloc(fullLen + 1);
+        memcpy(fullValue, reconstructed, reconLen);
+        memcpy(fullValue + reconLen, leafValue, leafLen);
+        fullValue[fullLen] = '\0';
+    }
+    else
+    {
+        fullValue = (char *) palloc(leafLen + 1);
+        memcpy(fullValue, leafValue, leafLen);
+        fullValue[leafLen] = '\0';
+        fullLen = leafLen;
+    }
+
+    // Check if the kmer matches the search conditions.
+    for (j = 0; j < in->nkeys; j++)
+    {
+        StrategyNumber strategy = in->scankeys[j].sk_strategy;
+        text *queryText = DatumGetTextPP(in->scankeys[j].sk_argument);
+        char *queryStr = VARDATA_ANY(queryText);
+        int queryLen = VARSIZE_ANY_EXHDR(queryText);
+        int k;
+
+        if (strategy == BTEqualStrategyNumber)
+        {
+            if (fullLen != queryLen || memcmp(fullValue, queryStr, fullLen) != 0)
+            {
+                res = false;
+                break;
+            }
+        }
+        else if (strategy == 6) /* starts_with operator */
+        {
+            if (queryLen > fullLen || memcmp(fullValue, queryStr, queryLen) != 0)
+            {
+                res = false;
+                break;
+            }
+        }
+        else if (strategy == 7) /* contains operator */
+        {
+            // Pattern matching with IUPAC codes
+            int kmer_len = fullLen;
+            int pattern_len = queryLen;
+            if (kmer_len != pattern_len)
+            {
+                res = false;
+                break;
+            }
+            for (k = 0; k < kmer_len; k++)
+            {
+                char kmer_char = toupper(fullValue[k]);
+                char pattern_char = toupper(queryStr[k]);
+                int q_bits = iupac_code_to_bits(pattern_char);
+                int k_bits = nucleotide_to_bits(kmer_char);
+
+                if ((q_bits & k_bits) == 0)
+                {
+                    res = false;
+                    break;
+                }
+            }
+            if (!res)
+                break;
+        }
+        else
+        {
+            elog(ERROR, "unrecognized strategy number: %d", strategy);
+        }
+    }
+
+    // Return the reconstructed full kmer value (if requested)
+    if (in->returnData)
+    {
+        text *resultText = cstring_to_text_with_len(fullValue, fullLen);
+        out->leafValue = PointerGetDatum(resultText);
+    }
+    else
+    {
+        out->leafValue = (Datum) 0;
+    }
+    out->recheck = false; /* No need to recheck at heap level */
+
+    PG_RETURN_BOOL(res);
+}
+
+
+/*
+ * !!! NEEDS TO BE LOOK into later, THIS IS A SIMPLE EXAMPLE OF HOW TO IMPLEMENT THE COMPRESS FUNCTION !!!
+ * Compress function to convert from input type (kmer/text) to leaf type (cstring).
+ */
+/* Compress function to convert from input type to leaf type */
+PG_FUNCTION_INFO_V1(spg_kmer_compress);
+Datum
+spg_kmer_compress(PG_FUNCTION_ARGS)
+{
+    text *inText = PG_GETARG_TEXT_PP(0);  // Get the input as text
+    int32 inLen = VARSIZE_ANY_EXHDR(inText);  // Extract length of the input text
+    char *inData = VARDATA_ANY(inText);  // Extract pointer to the data portion
+
+    // Create a new text object for compression output
+    text *compressedText = (text *) palloc(VARHDRSZ + inLen);
+    SET_VARSIZE(compressedText, VARHDRSZ + inLen);
+    memcpy(VARDATA(compressedText), inData, inLen);
+
+    // Return the compressed text as a Datum
+    PG_RETURN_POINTER(compressedText);
 }

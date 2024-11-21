@@ -73,6 +73,42 @@ CREATE TYPE qkmer (
 );
 
 /******************************************************************************
+    * Index support functions
+******************************************************************************/
+
+-- Add every function from C that is neccessary for SP-GiST index support
+
+CREATE FUNCTION spg_kmer_config(internal, internal)
+RETURNS void
+AS 'MODULE_PATHNAME', 'spg_kmer_config'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE FUNCTION spg_kmer_choose(internal, internal)
+RETURNS void
+AS 'MODULE_PATHNAME', 'spg_kmer_choose'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE FUNCTION spg_kmer_picksplit(internal, internal)
+RETURNS void
+AS 'MODULE_PATHNAME', 'spg_kmer_picksplit'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE FUNCTION spg_kmer_inner_consistent(internal, internal)
+RETURNS void
+AS 'MODULE_PATHNAME', 'spg_kmer_inner_consistent'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE FUNCTION spg_kmer_leaf_consistent(internal, internal)
+RETURNS bool
+AS 'MODULE_PATHNAME', 'spg_kmer_leaf_consistent'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE FUNCTION spg_kmer_compress(internal)
+RETURNS internal
+AS 'MODULE_PATHNAME', 'spg_kmer_compress'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+/******************************************************************************
  * Length functions
  ******************************************************************************/
 
@@ -112,9 +148,11 @@ CREATE OPERATOR = (
     PROCEDURE = equals,
     COMMUTATOR = =,
     NEGATOR = <>,
-    HASHES --supports hash joins, not necessary but allows query optimization:
+    HASHES, --supports hash joins, not necessary but allows query optimization:
             -- instead of nested loop uses hash join when joining two kmer tables
             -- matching the kmers
+    RESTRICT = eqsel,
+    JOIN = eqjoinsel
 );
 
 -- Create the '<>' operator for kmer type
@@ -162,7 +200,18 @@ CREATE OPERATOR ^@ (
     LEFTARG = kmer,
     RIGHTARG = kmer,
     PROCEDURE = starts_with,
-    COMMUTATOR = @^
+    COMMUTATOR = @^,
+    RESTRICT = scalarltsel,
+    JOIN = scalarltjoinsel
+);
+
+CREATE OPERATOR @^ (
+    LEFTARG = kmer,
+    RIGHTARG = kmer,
+    PROCEDURE = starts_with,
+    COMMUTATOR = ^@,
+    RESTRICT = scalarltsel,
+    JOIN = scalarltjoinsel
 );
 -- We already have an implicit cast from text to kmer, so that doen't need to be handled here
 -- (more info on operators: https://www.postgresql.org/docs/current/sql-createoperator.html)
@@ -182,7 +231,9 @@ CREATE OPERATOR @> (
     LEFTARG = qkmer,
     RIGHTARG = kmer,
     PROCEDURE = contains,
-    COMMUTATOR = <@
+    COMMUTATOR = <@,
+    RESTRICT = contsel,
+    JOIN = contjoinsel
 );
 
 /******************************************************************************
@@ -201,12 +252,18 @@ CREATE OPERATOR CLASS kmer_hash_ops DEFAULT FOR TYPE kmer USING hash AS
     FUNCTION 1 kmer_hash(kmer);
 
 /******************************************************************************
- * Operators
+ * OPERATOR CLASS FOR SP-GiST INDEX
  ******************************************************************************/
 
-
-
-/******************************************************************************/
-
-
-/******************************************************************************/
+CREATE OPERATOR CLASS spgist_kmer_ops
+DEFAULT FOR TYPE kmer USING spgist AS
+    OPERATOR 3 = (kmer, kmer),
+    OPERATOR 6 ^@ (kmer, kmer),
+    OPERATOR 7 @> (qkmer, kmer),
+    FUNCTION 1 spg_kmer_config(internal, internal),
+    FUNCTION 2 spg_kmer_choose(internal, internal),
+    FUNCTION 3 spg_kmer_picksplit(internal, internal),
+    FUNCTION 4 spg_kmer_inner_consistent(internal, internal),
+    FUNCTION 5 spg_kmer_leaf_consistent(internal, internal),
+    FUNCTION 6 spg_kmer_compress(internal);
+    -- storage: type of storage for the index
