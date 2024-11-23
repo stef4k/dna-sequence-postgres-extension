@@ -1,8 +1,0 @@
-Gather  (cost=1000.00..16570.86 rows=1 width=201) (actual time=41.022..45.975 rows=0 loops=1)
-  Workers Planned: 2
-  Workers Launched: 2
-  ->  Parallel Seq Scan on dna_sequences  (cost=0.00..15570.76 rows=1 width=201) (actual time=30.298..30.299 rows=0 loops=3)
-        Filter: (sequence = 'ACGTACGTACGTACGTACGTACGTACGTACGT'::text)
-        Rows Removed by Filter: 152688
-Planning Time: 0.378 ms
-Execution Time: 46.016 ms

@@ -1,5 +1,0 @@
-Seq Scan on dna_sequences  (cost=0.00..831.71 rows=21148 width=26) (actual time=6.408..6.408 rows=0 loops=1)
-  Filter: (sequence = 'ACGTACGTACGTACGTACGTACGTACGTACGT'::dna_sequence)
-  Rows Removed by Filter: 42297
-Planning Time: 2.999 ms
-Execution Time: 6.685 ms

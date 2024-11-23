@@ -1,4 +1,0 @@
-Index Scan using dna_sequence_spgist_idx on dna_sequences  (cost=0.41..8.43 rows=1 width=201) (actual time=0.025..0.025 rows=0 loops=1)
-  Index Cond: (sequence = 'ACGTACGTACGTACGTACGTACGTACGTACGT'::text)
-Planning Time: 0.214 ms
-Execution Time: 0.037 ms
