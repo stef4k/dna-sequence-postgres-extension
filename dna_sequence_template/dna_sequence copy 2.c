@@ -677,7 +677,6 @@ static Oid get_kmer_oid(void)
 {
     Oid kmer_oid = TypenameGetTypid("kmer");
     if (!OidIsValid(kmer_oid))
-        elog(ERROR, "Type 'kmer' does not exist");
     return kmer_oid;
 }
 
@@ -725,7 +724,7 @@ spg_kmer_config(PG_FUNCTION_ARGS)
 {
     spgConfigOut *cfg = (spgConfigOut *) PG_GETARG_POINTER(1);
 
-    cfg->prefixType = get_kmer_oid();
+    cfg->prefixType = TEXTOID;
     cfg->labelType = INT2OID;
     cfg->canReturnData = true; /* allow for reconstructon of original kmers */
     cfg->longValuesOK = true;   /* suffixing will shorten long values */
@@ -808,6 +807,7 @@ cmpNodePtr(const void *a, const void *b)
     return pg_cmp_s16(aa->c, bb->c);
 }
 
+
 /* The choose function can determine either that the new value matches one of the
 existing child nodes, or that a new child node must be added, or that the new value is inconsistent with the
 tuple prefix and so the inner tuple must be split to create a less restrictive prefix.
@@ -828,9 +828,10 @@ spg_kmer_choose(PG_FUNCTION_ARGS)
     spgChooseIn *in = (spgChooseIn *) PG_GETARG_POINTER(0); // The first argument is a pointer to a spgChooseIn C struct, containing input data for the function.
     spgChooseOut *out = (spgChooseOut *) PG_GETARG_POINTER(1); // The second argument is a pointer to a spgChooseOut C struct, which the function must fill with result data.
 
+
     // See the struct documentation for this and all the following functions here: https://www.postgresql.org/docs/current/spgist.html
 
-    Kmer       *inKmer = (Kmer *)DatumGetPointer(in->datum);
+    text       *inKmer = DatumGetTextPP(in->datum);
     char       *inStr = VARDATA_ANY(inKmer);
     int         inSize = VARSIZE_ANY_EXHDR(inKmer);
     char       *prefixStr = NULL;
@@ -842,7 +843,7 @@ spg_kmer_choose(PG_FUNCTION_ARGS)
     /* Check for prefix match, set nodeChar to first byte after prefix */
     if (in->hasPrefix)
     {
-        Kmer       *prefixKmer = (Kmer *)DatumGetPointer(in->prefixDatum);
+        text       *prefixKmer = DatumGetTextPP(in->prefixDatum);
 
         prefixStr = VARDATA_ANY(prefixKmer);
         prefixSize = VARSIZE_ANY_EXHDR(prefixKmer);
@@ -971,16 +972,20 @@ spg_kmer_picksplit(PG_FUNCTION_ARGS)
 {
     spgPickSplitIn *in = (spgPickSplitIn *) PG_GETARG_POINTER(0); // The first argument is a pointer to a spgPickSplitIn C struct, containing input data for the function.
     spgPickSplitOut *out = (spgPickSplitOut *) PG_GETARG_POINTER(1); // The second argument is a pointer to a spgPickSplitOut C struct, which the function must fill with result data.
-    Kmer       *kmer0 = (Kmer *)DatumGetPointer(in->datums[0]);
+    text       *kmer0 = DatumGetTextPP(in->datums[0]);
     int         i,
                 commonLen;
     spgNodePtr *nodes;
+    
+
 
     /* Identify longest common prefix, if any */
     commonLen = VARSIZE_ANY_EXHDR(kmer0);
+
     for (i = 1; i < in->nTuples && commonLen > 0; i++)
     {
-        Kmer       *kmeri = (Kmer *)DatumGetPointer(in->datums[i]);
+
+        text       *kmeri = DatumGetTextPP(in->datums[i]);
         int         tmp = commonPrefix(VARDATA_ANY(kmer0),
                                        VARDATA_ANY(kmeri),
                                        VARSIZE_ANY_EXHDR(kmer0),
@@ -989,6 +994,8 @@ spg_kmer_picksplit(PG_FUNCTION_ARGS)
         if (tmp < commonLen)
             commonLen = tmp;
     }
+
+
 
     /*
      * Limit the prefix length, if necessary, to ensure that the resulting
@@ -1013,7 +1020,7 @@ spg_kmer_picksplit(PG_FUNCTION_ARGS)
 
     for (i = 0; i < in->nTuples; i++)
     {
-        Kmer       *kmeri = (Kmer *)DatumGetPointer(in->datums[i]);
+        text       *kmeri = DatumGetTextPP(in->datums[i]);
 
         if (commonLen < VARSIZE_ANY_EXHDR(kmeri))
             nodes[i].c = *(unsigned char *) (VARDATA_ANY(kmeri) + commonLen);
@@ -1045,7 +1052,7 @@ spg_kmer_picksplit(PG_FUNCTION_ARGS)
     // Build nodes -> map tuples to nodes
     for (i = 0; i < in->nTuples; i++)
     {
-        Kmer       *kmeri = (Kmer *)DatumGetPointer(nodes[i].d);
+        text       *kmeri = DatumGetTextPP(nodes[i].d);
         Datum       leafD;
 
         // If new node label, add to nodeLabels
@@ -1078,10 +1085,12 @@ spg_kmer_inner_consistent(PG_FUNCTION_ARGS)
 {
     spgInnerConsistentIn *in = (spgInnerConsistentIn *) PG_GETARG_POINTER(0); // The first argument is a pointer to a spgInnerConsistentIn C struct, containing input data for the function.
     spgInnerConsistentOut *out = (spgInnerConsistentOut *) PG_GETARG_POINTER(1); // The second argument is a pointer to a spgInnerConsistentOut C struct, which the function must fill with result data.
-    Kmer       *reconstructedValue;
-    Kmer       *reconstrKmer;
+    
+
+    text       *reconstructedValue;
+    text       *reconstrKmer;
     int         maxReconstrLen;
-    Kmer       *prefixKmer = NULL;
+    text       *prefixKmer = NULL;
     int         prefixSize = 0;
     int         i;
 
@@ -1096,14 +1105,14 @@ spg_kmer_inner_consistent(PG_FUNCTION_ARGS)
      * created by a previous invocation of this routine, and we always emit
      * long-format reconstructed values.
      */
-    reconstructedValue = (Kmer *) DatumGetPointer(in->reconstructedValue);
+    reconstructedValue = (text *) DatumGetPointer(in->reconstructedValue);
     Assert(reconstructedValue == NULL ? in->level == 0 :
            VARSIZE_ANY_EXHDR(reconstructedValue) == in->level);
 
     maxReconstrLen = in->level + 1;
     if (in->hasPrefix)
     {
-        prefixKmer = (Kmer *)DatumGetPointer(in->prefixDatum);
+        prefixKmer = DatumGetTextPP(in->prefixDatum);
         prefixSize = VARSIZE_ANY_EXHDR(prefixKmer);
         maxReconstrLen += prefixSize;
     }
@@ -1158,12 +1167,13 @@ spg_kmer_inner_consistent(PG_FUNCTION_ARGS)
 
         for (j = 0; j < in->nkeys; j++)
         {
+
             StrategyNumber strategy = in->scankeys[j].sk_strategy;
-            Kmer       *inKmer;
+            text       *inKmer;
             int         inSize;
             int         r;
 
-            inKmer = (Kmer *)DatumGetPointer(in->scankeys[j].sk_argument);
+            inKmer = DatumGetTextPP(in->scankeys[j].sk_argument);
             inSize = VARSIZE_ANY_EXHDR(inKmer);
 
             r = memcmp(VARDATA(reconstrKmer), VARDATA_ANY(inKmer),
@@ -1180,12 +1190,36 @@ spg_kmer_inner_consistent(PG_FUNCTION_ARGS)
                         res = false;
                     break;
                 case KMER_CONTAINS_STRATEGY:
-                    /* For pattern matching, we need to skip inner nodes */
-                    /* We can let all nodes pass and check at the leaf */
+                {
+                    /* Perform a partial match between the reconstructed kmer and the query pattern */
+                    text *query = DatumGetTextPP(in->scankeys[j].sk_argument);
+                    int queryLen = VARSIZE_ANY_EXHDR(query);
+
+                    /* If the reconstructed kmer is longer than the query, it can't be a match */
+                    if (thisLen > queryLen)
+                    {
+                        res = false;
+                        break;
+                    }
+
+                    /* Perform a character-by-character comparison using IUPAC codes */
+                    for (int k = 0; k < thisLen; k++)
+                    {
+                        char qc = toupper(VARDATA_ANY(query)[k]);
+                        char kc = toupper(VARDATA(reconstrKmer)[k]);
+
+                        int q_bits = iupac_code_to_bits(qc);
+                        int k_bits = nucleotide_to_bits(kc);
+
+                        if ((q_bits & k_bits) == 0)
+                        {
+                            res = false;
+                            break;
+                        }
+                    }
                     break;
+                }
                 default:
-                    elog(ERROR, "unrecognized strategy number: %d",
-                         in->scankeys[j].sk_strategy);
                     res = false;
                     break;
             }
@@ -1215,7 +1249,7 @@ spg_kmer_leaf_consistent(PG_FUNCTION_ARGS)
     spgLeafConsistentIn *in = (spgLeafConsistentIn *) PG_GETARG_POINTER(0); // The first argument is a pointer to a spgLeafConsistentIn C struct, containing input data for the function.
     spgLeafConsistentOut *out = (spgLeafConsistentOut *) PG_GETARG_POINTER(1); // The second argument is a pointer to a spgLeafConsistentOut C struct, which the function must fill with result data.
     int         level = in->level;
-    Kmer       *leafValue,
+    text       *leafValue,
                 *reconstrValue = NULL;
     char       *fullValue;
     int         fullLen;
@@ -1226,14 +1260,14 @@ spg_kmer_leaf_consistent(PG_FUNCTION_ARGS)
     /* All tests are exact */
     out->recheck = false;
 
-    leafValue = (Kmer *)DatumGetPointer(in->leafDatum);
+    leafValue = DatumGetTextPP(in->leafDatum);
 
     /* In the true case, if returnData is true then leafValue must be set to the value (of type 
     spgConfigIn.attType) originally supplied to be indexed for this leaf tuple. 
     => reconstruct the full kmer value */
     /* As above, in->reconstructedValue isn't toasted or short. */
     if (DatumGetPointer(in->reconstructedValue))
-        reconstrValue = (Kmer *)DatumGetPointer(in->reconstructedValue);
+        reconstrValue = (text *) DatumGetPointer(in->reconstructedValue);
 
     Assert(reconstrValue == NULL ? level == 0 :
            VARSIZE_ANY_EXHDR(reconstructedValue) == level);
@@ -1247,7 +1281,7 @@ spg_kmer_leaf_consistent(PG_FUNCTION_ARGS)
     }
     else
     {
-        Kmer       *fullKmer = palloc(VARHDRSZ + fullLen);
+        text       *fullKmer = palloc(VARHDRSZ + fullLen);
 
         SET_VARSIZE(fullKmer, VARHDRSZ + fullLen);
         fullValue = VARDATA(fullKmer);
@@ -1264,7 +1298,7 @@ spg_kmer_leaf_consistent(PG_FUNCTION_ARGS)
     for (j = 0; j < in->nkeys; j++)
     {
         StrategyNumber strategy = in->scankeys[j].sk_strategy;
-        Kmer       *query = (Kmer *)DatumGetPointer(in->scankeys[j].sk_argument);
+        text       *query = DatumGetTextPP(in->scankeys[j].sk_argument);
         int         queryLen = VARSIZE_ANY_EXHDR(query);
         int         r;
 
@@ -1310,8 +1344,6 @@ spg_kmer_leaf_consistent(PG_FUNCTION_ARGS)
                 }
                 break;
             default:
-                elog(ERROR, "unrecognized strategy number: %d",
-                     in->scankeys[j].sk_strategy);
                 res = false;
                 break;
         }
