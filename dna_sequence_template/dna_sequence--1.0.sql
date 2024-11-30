@@ -220,6 +220,20 @@ CREATE FUNCTION contains(qkmer, kmer)
     RETURNS boolean AS 'MODULE_PATHNAME', 'contains_qkmer_kmer'
     LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
+
+CREATE FUNCTION contained(kmer, qkmer)
+    RETURNS boolean AS 'MODULE_PATHNAME', 'contained_qkmer_kmer'
+    LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE OPERATOR <@(
+    LEFTARG = kmer,
+    RIGHTARG = qkmer,
+    PROCEDURE = contained,
+    COMMUTATOR = @>,
+    RESTRICT = contsel,
+    JOIN = contjoinsel
+);
+
 -- '@>' operator for qkmer and kmer
 CREATE OPERATOR @> (
     LEFTARG = qkmer,
