@@ -276,6 +276,7 @@ DEFAULT FOR TYPE kmer USING spgist AS
     OPERATOR 1 = (kmer, kmer),
     OPERATOR 2 ^@ (kmer, kmer),
     OPERATOR 3 @> (qkmer, kmer),
+    OPERATOR 3 <@ (kmer, qkmer),
     FUNCTION 1 spg_kmer_config(internal, internal),
     FUNCTION 2 spg_kmer_choose(internal, internal),
     FUNCTION 3 spg_kmer_picksplit(internal, internal),

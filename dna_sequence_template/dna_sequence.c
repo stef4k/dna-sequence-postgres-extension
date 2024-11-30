@@ -576,34 +576,6 @@ static int iupac_code_to_bits(char c) {
     }
 }
 
-PG_FUNCTION_INFO_V1(contains_qkmer_kmer);
-Datum contains_qkmer_kmer(PG_FUNCTION_ARGS) {
-    Qkmer *pattern = (Qkmer *) PG_GETARG_POINTER(0);
-    Kmer *kmer = (Kmer *) PG_GETARG_POINTER(1);
-
-    int32 pattern_len = VARSIZE(pattern) - VARHDRSZ;
-    int32 kmer_len = VARSIZE(kmer) - VARHDRSZ;
-
-    if (pattern_len != kmer_len) {
-        PG_RETURN_BOOL(false);
-    }
-
-    /* For each position, compare according to IUPAC codes */
-    for (int i =0; i < pattern_len; i++) {
-        char qc = toupper(pattern->data[i]);
-        char kc = toupper(kmer->data[i]);
-
-        int q_bits = iupac_code_to_bits(qc);
-        int k_bits = nucleotide_to_bits(kc);
-
-        if ((q_bits & k_bits) == 0) {
-            PG_RETURN_BOOL(false);
-        }
-    }
-
-    PG_RETURN_BOOL(true);
-}
-
 // Added to fix the commuter issue
 PG_FUNCTION_INFO_V1(contained_qkmer_kmer);
 Datum contained_qkmer_kmer(PG_FUNCTION_ARGS) {
@@ -632,6 +604,36 @@ Datum contained_qkmer_kmer(PG_FUNCTION_ARGS) {
 
     PG_RETURN_BOOL(true);
 }
+
+PG_FUNCTION_INFO_V1(contains_qkmer_kmer);
+Datum contains_qkmer_kmer(PG_FUNCTION_ARGS) {
+    Qkmer *pattern = (Qkmer *) PG_GETARG_POINTER(0);
+    Kmer *kmer = (Kmer *) PG_GETARG_POINTER(1);
+
+    int32 pattern_len = VARSIZE(pattern) - VARHDRSZ;
+    int32 kmer_len = VARSIZE(kmer) - VARHDRSZ;
+
+    if (pattern_len != kmer_len) {
+        PG_RETURN_BOOL(false);
+    }
+
+    /* For each position, compare according to IUPAC codes */
+    for (int i =0; i < pattern_len; i++) {
+        char qc = toupper(pattern->data[i]);
+        char kc = toupper(kmer->data[i]);
+
+        int q_bits = iupac_code_to_bits(qc);
+        int k_bits = nucleotide_to_bits(kc);
+
+        if ((q_bits & k_bits) == 0) {
+            PG_RETURN_BOOL(false);
+        }
+    }
+
+    PG_RETURN_BOOL(true);
+}
+
+
 
 /******************************************************************************
  * HASH index implementation
