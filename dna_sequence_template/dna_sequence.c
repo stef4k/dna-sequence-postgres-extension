@@ -41,6 +41,11 @@ bool is_valid_qkmer_string(const char *str);
 
 extern Oid TypenameGetTypid(const char *typname);
 
+static int pg_cmp_s16	(	int16 	a,
+int16 	b )
+ {
+     return (int32) a - (int32) b;
+ }
 PG_MODULE_MAGIC;
 
 #define KMER_SIZE 32  // Maximum length for kmer
@@ -582,6 +587,22 @@ Datum contains_qkmer_kmer(PG_FUNCTION_ARGS) {
     if (pattern_len != kmer_len) {
         PG_RETURN_BOOL(false);
     }
+
+    /* For each position, compare according to IUPAC codes */
+    for (int i =0; i < pattern_len; i++) {
+        char qc = toupper(pattern->data[i]);
+        char kc = toupper(kmer->data[i]);
+
+        int q_bits = iupac_code_to_bits(qc);
+        int k_bits = nucleotide_to_bits(kc);
+
+        if ((q_bits & k_bits) == 0) {
+            PG_RETURN_BOOL(false);
+        }
+    }
+
+    PG_RETURN_BOOL(true);
+}
 
 // Added to fix the commuter issue
 PG_FUNCTION_INFO_V1(contained_qkmer_kmer);
