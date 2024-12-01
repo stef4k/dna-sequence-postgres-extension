@@ -239,7 +239,7 @@ CREATE FUNCTION canonical(kmer)
     LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
 /******************************************************************************
- * A custom hash function allowing hash-based indexes and hash joins
+ * A hash function allowing hash-based indexes and hash joins
  in order to implement group by, DISTINCT and COUNT
  ******************************************************************************/
 
@@ -248,10 +248,11 @@ CREATE FUNCTION kmer_hash(kmer) RETURNS integer
     AS 'MODULE_PATHNAME', 'kmer_hash'
     LANGUAGE C IMMUTABLE STRICT;
 
--- Register the kmer type as hashable
+-- Register the kmer type as hashable for hash indexing & hash-based operations
 CREATE OPERATOR CLASS kmer_hash_ops DEFAULT FOR TYPE kmer USING hash AS
     OPERATOR 1 = (kmer, kmer),
-    FUNCTION 1 kmer_hash(kmer);
+    -- Associate the kmer_hash function with this operator class
+    FUNCTION 1 kmer_hash(kmer);    
 
 /******************************************************************************
  * OPERATOR CLASS FOR SP-GiST INDEX

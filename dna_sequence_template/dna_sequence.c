@@ -510,7 +510,6 @@ Datum canonical_kmer(PG_FUNCTION_ARGS) {
                          errmsg("Invalid character '%c' in kmer string", ch)));
         }
     }
-
     // strcmp compares the kmer and the reverse_complement string lexicographically
     if (strcmp(input, reverse_complement + VARHDRSZ) <= 0) {
         // Case that original kmer comes alphabetically before reverse complement
@@ -606,12 +605,15 @@ Datum contains_qkmer_kmer(PG_FUNCTION_ARGS) {
 /* Compute a hash value based on the contents of the Kmer data type */
 PG_FUNCTION_INFO_V1(kmer_hash);
 Datum kmer_hash(PG_FUNCTION_ARGS) {
+    //Convert the first argument passed to the function into a kmer object
     Kmer *kmer = (Kmer *) PG_GETARG_POINTER(0);
+    // Store the actual length of the data portion of the Kmer object
     int32 length = VARSIZE(kmer) - VARHDRSZ;
 
-    /* Compute hash using PostgreSQL's hash_any function */
+    // Compute 32-bit hash value using PostgreSQL's hash_any function
     uint32 hash = hash_any((unsigned char *) kmer->data, length);
 
+    //  Return the calculated hash
     PG_RETURN_UINT32(hash);
 }
 
