@@ -571,6 +571,35 @@ static int iupac_code_to_bits(char c) {
     }
 }
 
+// Added to fix the commuter issue
+PG_FUNCTION_INFO_V1(contained_qkmer_kmer);
+Datum contained_qkmer_kmer(PG_FUNCTION_ARGS) {
+    Qkmer *pattern = (Qkmer *) PG_GETARG_POINTER(1);
+    Kmer *kmer = (Kmer *) PG_GETARG_POINTER(0);
+
+    int32 pattern_len = VARSIZE(pattern) - VARHDRSZ;
+    int32 kmer_len = VARSIZE(kmer) - VARHDRSZ;
+
+    if (pattern_len != kmer_len) {
+        PG_RETURN_BOOL(false);
+    }
+
+    /* For each position, compare according to IUPAC codes */
+    for (int i =0; i < pattern_len; i++) {
+        char qc = toupper(pattern->data[i]);
+        char kc = toupper(kmer->data[i]);
+
+        int q_bits = iupac_code_to_bits(qc);
+        int k_bits = nucleotide_to_bits(kc);
+
+        if ((q_bits & k_bits) == 0) {
+            PG_RETURN_BOOL(false);
+        }
+    }
+
+    PG_RETURN_BOOL(true);
+}
+
 PG_FUNCTION_INFO_V1(contains_qkmer_kmer);
 Datum contains_qkmer_kmer(PG_FUNCTION_ARGS) {
     Qkmer *pattern = (Qkmer *) PG_GETARG_POINTER(0);
@@ -598,6 +627,8 @@ Datum contains_qkmer_kmer(PG_FUNCTION_ARGS) {
 
     PG_RETURN_BOOL(true);
 }
+
+
 
 /******************************************************************************
  * HASH index implementation
@@ -661,7 +692,6 @@ typedef struct spgNodePtr
     int16       c;
 } spgNodePtr;
 
-
 /* Function declarations */
 PG_FUNCTION_INFO_V1(spg_kmer_config);
 Datum spg_kmer_config(PG_FUNCTION_ARGS);
@@ -694,12 +724,34 @@ spg_kmer_config(PG_FUNCTION_ARGS)
     cfg->prefixType = get_kmer_oid();
     cfg->labelType = INT2OID;
     cfg->canReturnData = true; /* allow for reconstructon of original kmers */
-    cfg->longValuesOK = true;   /* suffixing will shorten long values */
+    cfg->longValuesOK = false;   /* suffixing will shorten long values */
 
     /* picksplit can be applied to a single leaf tuple only in the case that the config function 
      * set longValuesOK to true and a larger-than-a-page input value has been supplied. */
     PG_RETURN_VOID();
 }
+
+// static Datum
+// formKmerDatum(const char *data, int datalen)
+// {
+//     char       *p;
+
+//     p = (char *) palloc(datalen + VARHDRSZ);
+
+//     if (datalen + VARHDRSZ_SHORT <= VARATT_SHORT_MAX)
+//     {
+//         SET_VARSIZE_SHORT(p, datalen + VARHDRSZ_SHORT);
+//         if (datalen)
+//             memcpy(p + VARHDRSZ_SHORT, data, datalen);
+//     }
+//     else
+//     {
+//         SET_VARSIZE(p, datalen + VARHDRSZ);
+//         memcpy(p + VARHDRSZ, data, datalen);
+//     }
+
+//     return PointerGetDatum(p);
+// }
 
 static Datum
 formKmerDatum(const char *data, int datalen)
@@ -708,17 +760,8 @@ formKmerDatum(const char *data, int datalen)
 
     p = (char *) palloc(datalen + VARHDRSZ);
 
-    if (datalen + VARHDRSZ_SHORT <= VARATT_SHORT_MAX)
-    {
-        SET_VARSIZE_SHORT(p, datalen + VARHDRSZ_SHORT);
-        if (datalen)
-            memcpy(p + VARHDRSZ_SHORT, data, datalen);
-    }
-    else
-    {
-        SET_VARSIZE(p, datalen + VARHDRSZ);
-        memcpy(p + VARHDRSZ, data, datalen);
-    }
+    SET_VARSIZE(p, datalen + VARHDRSZ);
+    memcpy(p + VARHDRSZ, data, datalen);
 
     return PointerGetDatum(p);
 }
@@ -737,6 +780,32 @@ commonPrefix(const char *a, const char *b, int lena, int lenb)
 
     return i;
 }
+
+// static bool
+// searchChar(Datum *nodeLabels, int nNodes, int16 c, int *i)
+// {
+//     int         StopLow = 0,
+//                 StopHigh = nNodes;
+
+//     while (StopLow < StopHigh)
+//     {
+//         int         StopMiddle = (StopLow + StopHigh) >> 1;
+//         int16       middle = DatumGetInt16(nodeLabels[StopMiddle]);
+
+//         if (c < middle)
+//             StopHigh = StopMiddle;
+//         else if (c > middle)
+//             StopLow = StopMiddle + 1;
+//         else
+//         {
+//             *i = StopMiddle;
+//             return true;
+//         }
+//     }
+
+//     *i = StopHigh;
+//     return false;
+// }
 
 static bool
 searchChar(Datum *nodeLabels, int nNodes, int16 c, int *i)
@@ -771,7 +840,12 @@ cmpNodePtr(const void *a, const void *b)
     const spgNodePtr *aa = (const spgNodePtr *) a;
     const spgNodePtr *bb = (const spgNodePtr *) b;
 
-    return pg_cmp_s16(aa->c, bb->c);
+    if (aa->c < bb->c)
+        return -1;
+    else if (aa->c > bb->c)
+        return 1;
+    else
+        return 0;
 }
 
 /* The choose function can determine either that the new value matches one of the
@@ -796,9 +870,9 @@ spg_kmer_choose(PG_FUNCTION_ARGS)
 
     // See the struct documentation for this and all the following functions here: https://www.postgresql.org/docs/current/spgist.html
 
-    text       *inKmer = DatumGetTextPP(in->datum);
-    char       *inStr = VARDATA_ANY(inKmer);
-    int         inSize = VARSIZE_ANY_EXHDR(inKmer);
+    Kmer       *inKmer = (Kmer *) DatumGetPointer(in->datum);
+    char       *inStr = inKmer->data;
+    int         inSize = VARSIZE(inKmer) - VARHDRSZ;
     char       *prefixStr = NULL;
     int         prefixSize = 0;
     int         commonLen = 0;
@@ -808,10 +882,10 @@ spg_kmer_choose(PG_FUNCTION_ARGS)
     /* Check for prefix match, set nodeChar to first byte after prefix */
     if (in->hasPrefix)
     {
-        text       *prefixKmer = DatumGetTextPP(in->prefixDatum);
+        Kmer       *prefixKmer = (Kmer *) DatumGetPointer(in->prefixDatum);
 
-        prefixStr = VARDATA_ANY(prefixKmer);
-        prefixSize = VARSIZE_ANY_EXHDR(prefixKmer);
+        prefixStr = prefixKmer->data;
+        prefixSize = VARSIZE(prefixKmer) - VARHDRSZ;
 
         commonLen = commonPrefix(inStr + in->level,
                                   prefixStr,
@@ -937,20 +1011,20 @@ spg_kmer_picksplit(PG_FUNCTION_ARGS)
 {
     spgPickSplitIn *in = (spgPickSplitIn *) PG_GETARG_POINTER(0); // The first argument is a pointer to a spgPickSplitIn C struct, containing input data for the function.
     spgPickSplitOut *out = (spgPickSplitOut *) PG_GETARG_POINTER(1); // The second argument is a pointer to a spgPickSplitOut C struct, which the function must fill with result data.
-    text       *kmer0 = DatumGetTextPP(in->datums[0]);
+    Kmer       *kmer0 = (Kmer *) DatumGetPointer(in->datums[0]);
     int         i,
                 commonLen;
     spgNodePtr *nodes;
 
     /* Identify longest common prefix, if any */
-    commonLen = VARSIZE_ANY_EXHDR(kmer0);
+    commonLen = VARSIZE(kmer0) - VARHDRSZ;
     for (i = 1; i < in->nTuples && commonLen > 0; i++)
     {
-        text       *kmeri = DatumGetTextPP(in->datums[i]);
-        int         tmp = commonPrefix(VARDATA_ANY(kmer0),
-                                       VARDATA_ANY(kmeri),
-                                       VARSIZE_ANY_EXHDR(kmer0),
-                                       VARSIZE_ANY_EXHDR(kmeri));
+        Kmer       *kmeri = (Kmer *) DatumGetPointer(in->datums[i]);
+        int         tmp = commonPrefix(kmer0->data,
+                                       kmeri->data,
+                                       VARSIZE(kmer0) - VARHDRSZ,
+                                       VARSIZE(kmeri) - VARHDRSZ);
 
         if (tmp < commonLen)
             commonLen = tmp;
@@ -970,7 +1044,7 @@ spg_kmer_picksplit(PG_FUNCTION_ARGS)
     else
     {
         out->hasPrefix = true;
-        out->prefixDatum = formKmerDatum(VARDATA_ANY(kmer0), commonLen);
+        out->prefixDatum = formKmerDatum(kmer0->data, commonLen);
     }
 
     /* Extract the node label (first non-common byte) from each value */
@@ -979,10 +1053,10 @@ spg_kmer_picksplit(PG_FUNCTION_ARGS)
 
     for (i = 0; i < in->nTuples; i++)
     {
-        text       *kmeri = DatumGetTextPP(in->datums[i]);
+        Kmer       *kmeri = (Kmer *) DatumGetPointer(in->datums[i]);
 
-        if (commonLen < VARSIZE_ANY_EXHDR(kmeri))
-            nodes[i].c = *(unsigned char *) (VARDATA_ANY(kmeri) + commonLen);
+        if (commonLen < VARSIZE(kmeri) - VARHDRSZ)
+            nodes[i].c = *(unsigned char *) (kmeri->data + commonLen);
         else
             nodes[i].c = -1;    /* use -1 if string is all common */
         nodes[i].i = i;
@@ -1011,7 +1085,7 @@ spg_kmer_picksplit(PG_FUNCTION_ARGS)
     // Build nodes -> map tuples to nodes
     for (i = 0; i < in->nTuples; i++)
     {
-        text       *kmeri = DatumGetTextPP(nodes[i].d);
+        Kmer       *kmeri = (Kmer *) DatumGetPointer(nodes[i].d);
         Datum       leafD;
 
         // If new node label, add to nodeLabels
@@ -1021,9 +1095,9 @@ spg_kmer_picksplit(PG_FUNCTION_ARGS)
             out->nNodes++;
         }
 
-        if (commonLen < VARSIZE_ANY_EXHDR(kmeri))
-            leafD = formKmerDatum(VARDATA_ANY(kmeri) + commonLen + 1,
-                                  VARSIZE_ANY_EXHDR(kmeri) - commonLen - 1);
+        if (commonLen < VARSIZE(kmeri) - VARHDRSZ)
+            leafD = formKmerDatum(kmeri->data + commonLen + 1,
+                                  (VARSIZE(kmeri) - VARHDRSZ) - commonLen - 1);
         else
             leafD = formKmerDatum(NULL, 0);
 
@@ -1044,10 +1118,10 @@ spg_kmer_inner_consistent(PG_FUNCTION_ARGS)
 {
     spgInnerConsistentIn *in = (spgInnerConsistentIn *) PG_GETARG_POINTER(0); // The first argument is a pointer to a spgInnerConsistentIn C struct, containing input data for the function.
     spgInnerConsistentOut *out = (spgInnerConsistentOut *) PG_GETARG_POINTER(1); // The second argument is a pointer to a spgInnerConsistentOut C struct, which the function must fill with result data.
-    text       *reconstructedValue;
-    text       *reconstrKmer;
+    Kmer       *reconstructedValue;
+    Kmer       *reconstrKmer;
     int         maxReconstrLen;
-    text       *prefixKmer = NULL;
+    Kmer       *prefixKmer = NULL;
     int         prefixSize = 0;
     int         i;
 
@@ -1062,15 +1136,15 @@ spg_kmer_inner_consistent(PG_FUNCTION_ARGS)
      * created by a previous invocation of this routine, and we always emit
      * long-format reconstructed values.
      */
-    reconstructedValue = (text *) DatumGetPointer(in->reconstructedValue);
+    reconstructedValue = (Kmer *) DatumGetPointer(in->reconstructedValue);
     Assert(reconstructedValue == NULL ? in->level == 0 :
-           VARSIZE_ANY_EXHDR(reconstructedValue) == in->level);
+           (VARSIZE(reconstructedValue) - VARHDRSZ) == in->level);
 
     maxReconstrLen = in->level + 1;
     if (in->hasPrefix)
     {
-        prefixKmer = DatumGetTextPP(in->prefixDatum);
-        prefixSize = VARSIZE_ANY_EXHDR(prefixKmer);
+        prefixKmer = (Kmer *) DatumGetPointer(in->prefixDatum);
+        prefixSize = VARSIZE(prefixKmer) - VARHDRSZ;
         maxReconstrLen += prefixSize;
     }
 
@@ -1078,12 +1152,12 @@ spg_kmer_inner_consistent(PG_FUNCTION_ARGS)
     SET_VARSIZE(reconstrKmer, VARHDRSZ + maxReconstrLen);
 
     if (in->level)
-        memcpy(VARDATA(reconstrKmer),
-               VARDATA(reconstructedValue),
+        memcpy(reconstrKmer->data,
+               reconstructedValue->data,
                in->level);
     if (prefixSize)
-        memcpy(((char *) VARDATA(reconstrKmer)) + in->level,
-               VARDATA_ANY(prefixKmer),
+        memcpy(reconstrKmer->data + in->level,
+               prefixKmer->data,
                prefixSize);
     /* last byte of reconstrKmer will be filled in below */
 
@@ -1118,36 +1192,61 @@ spg_kmer_inner_consistent(PG_FUNCTION_ARGS)
             thisLen = maxReconstrLen - 1;
         else
         {
-            ((unsigned char *) VARDATA(reconstrKmer))[maxReconstrLen - 1] = nodeChar;
+            reconstrKmer->data[maxReconstrLen - 1] = nodeChar;
             thisLen = maxReconstrLen;
         }
 
         for (j = 0; j < in->nkeys; j++)
         {
             StrategyNumber strategy = in->scankeys[j].sk_strategy;
-            text       *inKmer;
+            Kmer       *inKmer;
             int         inSize;
             int         r;
-
-            inKmer = DatumGetTextPP(in->scankeys[j].sk_argument);
-            inSize = VARSIZE_ANY_EXHDR(inKmer);
-
-            r = memcmp(VARDATA(reconstrKmer), VARDATA_ANY(inKmer),
-                       Min(inSize, thisLen));
 
             switch (strategy)
             {
                 case KMER_EQUAL_STRATEGY:
-                    if (r != 0 || inSize != thisLen)
+                    inKmer = (Kmer *) DatumGetPointer(in->scankeys[j].sk_argument);
+                    inSize = VARSIZE(inKmer) - VARHDRSZ;
+                    r = memcmp(reconstrKmer->data, inKmer->data, Min(inSize, thisLen));
+                    if (r != 0 || inSize < thisLen)
                         res = false;
                     break;
                 case KMER_PREFIX_STRATEGY:
+                    inKmer = (Kmer *) DatumGetPointer(in->scankeys[j].sk_argument);
+                    inSize = VARSIZE(inKmer) - VARHDRSZ;
+                    r = memcmp(reconstrKmer->data, inKmer->data, Min(inSize, thisLen));
                     if (r != 0)
                         res = false;
                     break;
                 case KMER_CONTAINS_STRATEGY:
-                    /* For pattern matching, we need to skip inner nodes */
-                    /* We can let all nodes pass and check at the leaf */
+                    {
+                        Qkmer *inQkmer = (Qkmer *) DatumGetPointer(in->scankeys[j].sk_argument);
+                        int inSize = VARSIZE(inQkmer) - VARHDRSZ;
+
+                        if (inSize < thisLen)
+                        {
+                            res = false;
+                        }
+                        else
+                        {
+                            char *qkmer_str = inQkmer->data;
+                            char *kmer_str = reconstrKmer->data;
+                            int k;
+
+                            for (k = 0; k < thisLen; k++)
+                            {
+                                int q_bits = iupac_code_to_bits(qkmer_str[k]);
+                                int k_bits = nucleotide_to_bits(kmer_str[k]);
+
+                                if ((q_bits & k_bits) == 0)
+                                {
+                                    res = false;
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     break;
                 default:
                     elog(ERROR, "unrecognized strategy number: %d",
@@ -1181,8 +1280,8 @@ spg_kmer_leaf_consistent(PG_FUNCTION_ARGS)
     spgLeafConsistentIn *in = (spgLeafConsistentIn *) PG_GETARG_POINTER(0); // The first argument is a pointer to a spgLeafConsistentIn C struct, containing input data for the function.
     spgLeafConsistentOut *out = (spgLeafConsistentOut *) PG_GETARG_POINTER(1); // The second argument is a pointer to a spgLeafConsistentOut C struct, which the function must fill with result data.
     int         level = in->level;
-    text       *leafValue,
-                *reconstrValue = NULL;
+    Kmer       *leafValue,
+               *reconstrValue = NULL;
     char       *fullValue;
     int         fullLen;
     /* The function must return true if the leaf tuple matches the query, or false if not. */
@@ -1192,36 +1291,36 @@ spg_kmer_leaf_consistent(PG_FUNCTION_ARGS)
     /* All tests are exact */
     out->recheck = false;
 
-    leafValue = DatumGetTextPP(in->leafDatum);
+    leafValue = (Kmer *) DatumGetPointer(in->leafDatum);
 
     /* In the true case, if returnData is true then leafValue must be set to the value (of type 
     spgConfigIn.attType) originally supplied to be indexed for this leaf tuple. 
     => reconstruct the full kmer value */
     /* As above, in->reconstructedValue isn't toasted or short. */
     if (DatumGetPointer(in->reconstructedValue))
-        reconstrValue = (text *) DatumGetPointer(in->reconstructedValue);
+        reconstrValue = (Kmer *) DatumGetPointer(in->reconstructedValue);
 
     Assert(reconstrValue == NULL ? level == 0 :
-           VARSIZE_ANY_EXHDR(reconstructedValue) == level);
+           (VARSIZE(reconstrValue) - VARHDRSZ) == level);
 
     /* Reconstruct the full string represented by this leaf tuple */
-    fullLen = level + VARSIZE_ANY_EXHDR(leafValue);
-    if (VARSIZE_ANY_EXHDR(leafValue) == 0 && level > 0)
+    fullLen = level + VARSIZE(leafValue) - VARHDRSZ;
+    if ((VARSIZE(leafValue) - VARHDRSZ) == 0 && level > 0)
     {
-        fullValue = VARDATA(reconstrValue);
+        fullValue = reconstrValue->data;
         out->leafValue = PointerGetDatum(reconstrValue);
     }
     else
     {
-        text       *fullKmer = palloc(VARHDRSZ + fullLen);
+        Kmer       *fullKmer = palloc(VARHDRSZ + fullLen);
 
         SET_VARSIZE(fullKmer, VARHDRSZ + fullLen);
-        fullValue = VARDATA(fullKmer);
+        fullValue = fullKmer->data;
         if (level)
-            memcpy(fullValue, VARDATA(reconstrValue), level);
-        if (VARSIZE_ANY_EXHDR(leafValue) > 0)
-            memcpy(fullValue + level, VARDATA_ANY(leafValue),
-                   VARSIZE_ANY_EXHDR(leafValue));
+            memcpy(fullValue, reconstrValue->data, level);
+        if ((VARSIZE(leafValue) - VARHDRSZ) > 0)
+            memcpy(fullValue + level, leafValue->data,
+                   VARSIZE(leafValue) - VARHDRSZ);
         out->leafValue = PointerGetDatum(fullKmer);
     }
 
@@ -1230,49 +1329,59 @@ spg_kmer_leaf_consistent(PG_FUNCTION_ARGS)
     for (j = 0; j < in->nkeys; j++)
     {
         StrategyNumber strategy = in->scankeys[j].sk_strategy;
-        text       *query = DatumGetTextPP(in->scankeys[j].sk_argument);
-        int         queryLen = VARSIZE_ANY_EXHDR(query);
+        Kmer       *query = (Kmer *) DatumGetPointer(in->scankeys[j].sk_argument);
+        int         queryLen = VARSIZE(query) - VARHDRSZ;
         int         r;
 
         switch (strategy)
         {
             case KMER_EQUAL_STRATEGY:
-                r = memcmp(fullValue, VARDATA_ANY(query), Min(queryLen, fullLen));
-                if (r != 0 || queryLen != fullLen)
-                    res = false;
+                r = memcmp(fullValue, query->data, Min(queryLen, fullLen));
+                res = (r == 0 && queryLen == fullLen);
                 break;
             case KMER_PREFIX_STRATEGY:
-                r = memcmp(fullValue, VARDATA_ANY(query), Min(queryLen, fullLen));
-                if (r != 0 || queryLen > fullLen)
-                    res = false;
-                break;
+            {
+                /*
+                * if level >= length of query then reconstrValue must begin with
+                * query (prefix) string, so we don't need to check it again.
+                */
+                res = (level >= queryLen) ||
+                    DatumGetBool(DirectFunctionCall2Coll(kmer_starts_with,
+                                                        PG_GET_COLLATION(),
+                                                        out->leafValue,
+                                                        PointerGetDatum(query)));
+    
+                if (!res)           /* no need to consider remaining conditions */
+                    break;
+    
+                continue;
+            }
             case KMER_CONTAINS_STRATEGY:
                 {
-                    /* For pattern matching, use the contains function */
-                    bool matches = true;
+                    Qkmer *pattern = (Qkmer *) DatumGetPointer(in->scankeys[j].sk_argument);
+                    int patternLen = VARSIZE(pattern) - VARHDRSZ;
+                    char *qkmer_str;
+                    char *kmer_str;
                     int k;
-                    char *kmerStr = fullValue;
-                    char *patternStr = VARDATA_ANY(query);
-
-                    if (fullLen != queryLen)
+                    if (fullLen != patternLen)
                     {
                         res = false;
                         break;
                     }
 
+                    qkmer_str = pattern->data;
+                    kmer_str = fullValue;
                     for (k = 0; k < fullLen; k++)
                     {
-                        int q_bits = iupac_code_to_bits(patternStr[k]);
-                        int k_bits = nucleotide_to_bits(kmerStr[k]);
+                        int q_bits = iupac_code_to_bits(qkmer_str[k]);
+                        int k_bits = nucleotide_to_bits(kmer_str[k]);
 
                         if ((q_bits & k_bits) == 0)
                         {
-                            matches = false;
+                            res = false;
                             break;
                         }
                     }
-                    if (!matches)
-                        res = false;
                 }
                 break;
             default:
