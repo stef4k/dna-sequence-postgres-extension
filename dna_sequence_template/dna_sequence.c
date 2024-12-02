@@ -731,41 +731,35 @@ spg_kmer_config(PG_FUNCTION_ARGS)
     PG_RETURN_VOID();
 }
 
-// static Datum
-// formKmerDatum(const char *data, int datalen)
-// {
-//     char       *p;
-
-//     p = (char *) palloc(datalen + VARHDRSZ);
-
-//     if (datalen + VARHDRSZ_SHORT <= VARATT_SHORT_MAX)
-//     {
-//         SET_VARSIZE_SHORT(p, datalen + VARHDRSZ_SHORT);
-//         if (datalen)
-//             memcpy(p + VARHDRSZ_SHORT, data, datalen);
-//     }
-//     else
-//     {
-//         SET_VARSIZE(p, datalen + VARHDRSZ);
-//         memcpy(p + VARHDRSZ, data, datalen);
-//     }
-
-//     return PointerGetDatum(p);
-// }
-
+ /*
+  * Form a kmer datum from the given not-necessarily-null-terminated string,
+  * using short varlena header format if possible
+  */
 static Datum
 formKmerDatum(const char *data, int datalen)
-{
-    char       *p;
+ {
+     char       *p;
+  
+     p = (char *) palloc(datalen + VARHDRSZ);
+  
+     if (datalen + VARHDRSZ_SHORT <= VARATT_SHORT_MAX)
+     {
+         SET_VARSIZE_SHORT(p, datalen + VARHDRSZ_SHORT);
+         if (datalen)
+             memcpy(p + VARHDRSZ_SHORT, data, datalen);
+     }
+     else
+     {
+         SET_VARSIZE(p, datalen + VARHDRSZ);
+         memcpy(p + VARHDRSZ, data, datalen);
+     }
+  
+     return PointerGetDatum(p);
+ }
 
-    p = (char *) palloc(datalen + VARHDRSZ);
-
-    SET_VARSIZE(p, datalen + VARHDRSZ);
-    memcpy(p + VARHDRSZ, data, datalen);
-
-    return PointerGetDatum(p);
-}
-
+ /*
+  * Find the length of the common prefix of a and b
+  */
 static int
 commonPrefix(const char *a, const char *b, int lena, int lenb)
 {
@@ -781,32 +775,11 @@ commonPrefix(const char *a, const char *b, int lena, int lenb)
     return i;
 }
 
-// static bool
-// searchChar(Datum *nodeLabels, int nNodes, int16 c, int *i)
-// {
-//     int         StopLow = 0,
-//                 StopHigh = nNodes;
-
-//     while (StopLow < StopHigh)
-//     {
-//         int         StopMiddle = (StopLow + StopHigh) >> 1;
-//         int16       middle = DatumGetInt16(nodeLabels[StopMiddle]);
-
-//         if (c < middle)
-//             StopHigh = StopMiddle;
-//         else if (c > middle)
-//             StopLow = StopMiddle + 1;
-//         else
-//         {
-//             *i = StopMiddle;
-//             return true;
-//         }
-//     }
-
-//     *i = StopHigh;
-//     return false;
-// }
-
+ /*
+  * Binary search an array of int16 datums for a match to c
+  *
+  * On success, *i gets the match location; on failure, it gets where to insert
+  */
 static bool
 searchChar(Datum *nodeLabels, int nNodes, int16 c, int *i)
 {
@@ -1111,8 +1084,6 @@ spg_kmer_picksplit(PG_FUNCTION_ARGS)
 /* Returns set of nodes (branches) to follow during tree search. */
 /* SP-GiST core code handles most of the search logic, but the choose
 function must provide the core with the set of nodes to follow during the search. */
-
-// !!! IN THIS IMPLEMENTATION, IT PREPARES TO VISIT ALL POSSIBLE CHILD NODES, THIS WILL HAVE TO BE WRITTEN PROPERLY LATER !!!
 Datum
 spg_kmer_inner_consistent(PG_FUNCTION_ARGS)
 {
