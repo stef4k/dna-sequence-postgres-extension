@@ -83,8 +83,8 @@ typedef struct {
  checks that string characters are one of A,C,G,T */
 bool is_valid_dna_string(const char *str) {
     for (int i = 0; i < strlen(str); i++) {
-        if (str[i] != 'A' && str[i] != 'C' && str[i] != 'G' && str[i] != 'T'
-        && str[i] != 'a' && str[i] != 'c' && str[i] != 'g' && str[i] != 't') {
+        if (toupper(str[i]) != 'A' && toupper(str[i]) != 'C'
+            && toupper(str[i]) != 'G' && toupper(str[i]) != 'T') {
             return false;
         }
     }
