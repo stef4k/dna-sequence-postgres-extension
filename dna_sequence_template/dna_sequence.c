@@ -20,14 +20,14 @@
 #include "funcapi.h"  // SRF macros
 #include "access/hash.h" // for HASH
 
-#include "access/spgist.h" // for SP-GiST
-#include "access/spgist_private.h" // for SP-GiST
-#include "catalog/pg_type.h" // for SP-GiST
-#include "utils/datum.h" // for SP-GiST
-#include "utils/pg_locale.h"// for SP-GiST
+// for SP-GiST
+#include "access/spgist.h"
+#include "access/spgist_private.h"
+#include "catalog/pg_type.h"
+#include "utils/datum.h"
+#include "utils/pg_locale.h"
 #include "storage/bufpage.h" // //for BLCKSZ
 #include "utils/varlena.h"
-
 #include "common/int.h"
 
 /* Define maximum prefix length for SP-GiST index */
