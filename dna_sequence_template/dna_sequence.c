@@ -122,10 +122,11 @@ bool is_valid_qkmer_string(const char *str) {
             errmsg("Input exceeds maximum length of %d", QKMER_SIZE)));
     }
     for (int i = 0; i < len; i++) {
-        if (toupper(str[i]) != 'A' && toupper(str[i]) != 'C' && toupper(str[i]) != 'G' && toupper(str[i]) != 'T'
-        && toupper(str[i]) != 'W' && toupper(str[i]) != 'S' && toupper(str[i]) != 'M' && toupper(str[i]) != 'K'
-        && toupper(str[i]) != 'R' && toupper(str[i]) != 'Y' && toupper(str[i]) != 'B' && toupper(str[i]) != 'D'
-        && toupper(str[i]) != 'H' && toupper(str[i]) != 'V' && toupper(str[i]) != 'N') {
+        char ch = toupper(str[i]);
+        if (ch != 'A' && ch != 'C' && ch != 'G' && ch != 'T'
+        && ch != 'W' && ch != 'S' && ch != 'M' && ch != 'K'
+        && ch != 'R' && ch != 'Y' && ch != 'B' && ch != 'D'
+        && ch != 'H' && ch != 'V' && ch != 'N') {
             return false;
         }
     }
@@ -151,7 +152,9 @@ Datum dna_in(PG_FUNCTION_ARGS) {
     length = strlen(input);
     result = (Dna_sequence *) palloc(VARHDRSZ + length);  // Correct assignment
     SET_VARSIZE(result, VARHDRSZ + length);
-    memcpy(result->data, input, length);
+    for (int i = 0; i < length; i++) {
+        result->data[i] = toupper(input[i]);
+    }
 
     PG_RETURN_POINTER(result);
 }
@@ -188,7 +191,9 @@ Datum kmer_in(PG_FUNCTION_ARGS) {
     length = strlen(input);
     result = (Kmer *) palloc(VARHDRSZ + length);  // Correct assignment
     SET_VARSIZE(result, VARHDRSZ + length);
-    memcpy(result->data, input, length);
+    for (int i = 0; i < length; i++) {
+        result->data[i] = toupper(input[i]);
+    }
 
     PG_RETURN_POINTER(result);
 }
@@ -229,7 +234,9 @@ Datum qkmer_in(PG_FUNCTION_ARGS) {
     length = strlen(input);
     result = (Qkmer *) palloc(VARHDRSZ + length);  // Correct assignment
     SET_VARSIZE(result, VARHDRSZ + length);
-    memcpy(result->data, input, length);
+    for (int i = 0; i < length; i++) {
+        result->data[i] = toupper(input[i]);
+    }
 
     PG_RETURN_POINTER(result);
 }
