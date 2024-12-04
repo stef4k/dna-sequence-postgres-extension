@@ -1,7 +1,8 @@
-EXTENSION   = dna_sequence
-MODULES 	= dna_sequence spg_kmer
-DATA        = dna_sequence--1.0.sql dna_sequence.control
+EXTENSION = dna_sequence
+MODULE_big = dna_sequence
+OBJS = dna_sequence.o spg_kmer.o
+DATA = dna_sequence--1.0.sql
 
-PG_CONFIG ?= pg_config
-PGXS = $(shell $(PG_CONFIG) --pgxs)
+PG_CONFIG = pg_config
+PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
