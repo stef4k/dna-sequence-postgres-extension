@@ -344,7 +344,7 @@ Datum generate_kmers(PG_FUNCTION_ARGS) {
         /* Validate k */
         dna_length = VARSIZE(dna_input) - VARHDRSZ;
         //TODO: Ask if we need to account for the max kmer lenght, might be an edge case 
-        if (k <= 0 || k > dna_length) {
+        if (k <= 0 || k > dna_length || k > KMER_SIZE) {
             ereport(ERROR,
                 (errmsg("Invalid k: must be between 1 and the length of the DNA sequence")));
         }
