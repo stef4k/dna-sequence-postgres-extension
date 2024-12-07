@@ -5,7 +5,7 @@ Authors: Kristóf Balázs, Stefanos Kypritidis, Otto Wantland, Nima Kamali Lasse
 */
 
 DROP EXTENSION IF EXISTS dna_sequence CASCADE;
-CREATE EXTENSION dna_sequence;
+CREATE EXTENSION dna_sequence;	
 
 /*
 =======================
@@ -318,6 +318,96 @@ LIMIT 5;
 	"TGCTCTATGAATGGGAA"				"TGCTCTATGAATGGGAA"
 	"ACTTTGCATTATAATTATCTTTTAC"		"ACTTTGCATTATAATTATCTTTTAC"
 	"AACGGGCCTAA"					"AACGGGCCTAA"
+*/
+
+/*
+=======================
+Counting operations
+=======================
+*/
+
+-- Count all 3-mers in DNA sequence: ATCGATCAC
+SELECT k.kmer, count(*)
+FROM generate_kmers('ATCGATCAC', 3) AS k(kmer)
+GROUP BY k.kmer
+ORDER BY count(*) DESC;
+/*	---Output---
+   kmer		count
+	"ATC"		2
+	"CGA"		1
+	"TCG"		1
+	"TCA"		1
+	"CAC"		1
+	"GAT"		1
+*/
+
+-- Show all distinct 3-mers in DNA sequence: ATCGATCAC
+SELECT DISTINCT(k.kmer)
+FROM generate_kmers('ATCGATCAC', 3) AS k(kmer);
+/*	---Output---
+   kmer
+   	"CGA"
+	"TCG"
+	"TCA"
+	"CAC"
+	"ATC"
+	"GAT"
+*/
+
+
+-- Count all Canonical 3-mers in DNA sequence: ATCGATCAC
+SELECT canonical(k.kmer), count(*)
+FROM generate_kmers('ATCGATCAC', 3) AS k(kmer)
+GROUP BY canonical(k.kmer)
+ORDER BY count(*) DESC;
+/*	---Output---
+   kmer		count
+	"ATC"		3
+	"CGA"		2
+	"TCA"		1
+	"CAC"		1
+*/
+
+-- Show all distinct canonical 3-mers in DNA sequence: ATCGATCAC
+SELECT DISTINCT(canonical(k.kmer))
+FROM generate_kmers('ATCGATCAC', 3) AS k(kmer);
+/*	---Output---
+   kmer
+   	"CGA"
+	"TCA"
+	"CAC"
+	"ATC"
+*/
+
+-- Find the total, distinct and unique count of 3-mers in DNA sequence: ATCGATCAC
+WITH kmers AS (
+SELECT k.kmer, count(*)
+FROM generate_kmers('ATCGATCAC', 3) AS k(kmer)
+GROUP BY k.kmer
+)
+SELECT sum(count) AS total_count,
+count(*) AS distinct_count,
+count(*) FILTER (WHERE count = 1) AS unique_count
+FROM kmers;
+/*	---Output---
+   total_count	distinct_count	unique_count
+   		7				6			5
+*/
+
+-- Find the total, distinct and unique count of the canonical 3-mers in DNA sequence: ATCGATCAC
+WITH canonical_kmers AS (
+SELECT canonical(k.kmer), count(canonical(kmer))
+FROM generate_kmers('ATCGATCAC', 3) AS k(kmer)
+GROUP BY canonical(k.kmer)
+order by  count(canonical(kmer)) DESC
+)
+SELECT sum(count) AS total_count,
+count(*) AS distinct_count,
+count(*) FILTER (WHERE count = 1) AS unique_count
+FROM canonical_kmers;
+/*	---Output---
+   total_count	distinct_count	unique_count
+   		7				4			2
 */
 
 
