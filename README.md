@@ -24,25 +24,39 @@ Collection of Python scripts used for data generation.
 - dna_db_generator.py: Python script used to parse through a collection of .fastq files downloaded using the [NCBI SRA Toolkit](https://github.com/ncbi/sra-tools/wiki/01.-Downloading-SRA-Toolkit) and create usable collections of real world data for testing the extension. Returns both .csv and .sql files for ease of data import.
 - unique_dna_kmers_generation.py: Python script for generating additional K-mer sequences based on the DNA sequences obtained from the .fastq files. This was used because we needed a large amount of K-mer objects to properly test index functionality and the real world data did not naturally provide enough K-mer sequences by itself. **Requires the existence of a DNA.csv file.**
 - files:
-	- fastqs: .fastq files obtained from the NCBI database containing real world sequences.
-	- csv_files: directory for .csv files created by the generator script.
-	- sql_inserts: directory for .sql files that can be run to create, and populate a database of each file type. 
+	- fastqs: *.fastq* files obtained from the NCBI database containing real world sequences.
+	- csv_files: Directory for *.csv* files created by the generator script.
+	- sql_inserts: Directory for *.sql* files that can be run to create, and populate a database of each file type. 
+	- dna_databases.sql: *.sql* file for creating the three empty tables that can be populated using the *.csv* or *.sql* files created by the script.
 
 ### test_queries.sql
 Collection of queries used for validating the proper functionality of the extension as per the project requirement.
 
 ## Extension Installation
-To properly compile and install the extension follow these steps:
+This project relies on the user having already installed [PostgreSQL](https://www.postgresql.org/) and being able to use PLQL commands.
+Follow these steps to properly install the extension:
 1. Clone the github directory to the desired location.
-2. Open a terminal and go to the *dna-sequence-postgres-extension* directory.
-3. Run the **make** command to compile the extension.
+
+2. Open a terminal and go to the **dna-sequence-postgres-extension** directory.
+
+3. Run
+	```
+	make
+	``` 
+	command to compile the extension.
+
 4. Run 
 	```
 	sudo make install
 	``` 
 command to install the extension.
+
 5. Connect to the desired PostgreSQL server and run:
-```
-CREATE EXTENSION dna_sequence;
-```
+	```
+	CREATE EXTENSION dna_sequence;
+	```
 to create the extension.
+
+If the steps above are followed correctly the PLSQL terminal should show a **CREATE EXTENSION** message. 
+
+## Data Generation
