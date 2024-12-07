@@ -14,6 +14,7 @@ Professor: Mahmoud Sakr
 ### dna_sequence_template
 The extension's template. Contains both a _c_ and an _sql file_ with the extension's data types, functions and operators as well as the Makefile necesarry for its installation.
 - dna_sequence--1.0.sql: SQL script used to create the extension.
+- dna_sequence.h: Header file for the extension (used by both C files).
 - dna_sequence.c: C source code for data types and functions used to create the extension.
 - spg_kmer.c: C source code for index implementation.
 - Makefile: Makefile used to compile the extension.
@@ -34,6 +35,7 @@ Collection of queries used for validating the proper functionality of the extens
 
 ## Extension Installation
 This project relies on the user having already installed [PostgreSQL](https://www.postgresql.org/) and being able to use PLQL commands.
+
 Follow these steps to properly install the extension:
 1. Clone the github directory to the desired location.
 
@@ -44,6 +46,14 @@ Follow these steps to properly install the extension:
 	make
 	``` 
 	command to compile the extension.
+
+	> :warning: **Attention:** In the latest versions of Postgres, when running make, the following error will be shown:
+	> ```
+	> spg_kmer.c:123:20: error: ‘VARHDRSZ_SHORT’ undeclared (first use in this function)
+	> if (datalen + VARHDRSZ_SHORT <= VARATT_SHORT_MAX)
+	> ...
+	> ```
+	> In this case, modify the `spg_kmer.c` by adding `#include "varatt.h"` at the beginning of the file.
 
 4. Run 
 	```
