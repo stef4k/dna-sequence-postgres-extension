@@ -111,14 +111,14 @@ def main():
     # Export sequence dictionary into a different .csv file for each data type
     pd_dna =  pd.DataFrame(dna, columns=['SEQUENCE'])
     filename = f"files/csv_files/dna.csv"
-    pd_dna.to_csv(filename, index=False)
+    pd_dna.to_csv(filename, index=False, header=False)
 
     pd_kmer =  pd.DataFrame(kmer, columns=['SEQUENCE'])
     filename = f"files/csv_files/kmer.csv"
-    pd_kmer.to_csv(filename, index=False)
+    pd_kmer.to_csv(filename, index=False, header=False)
 
     pd_qkmer =  pd.DataFrame(qkmer, columns=['SEQUENCE'])
     filename = f"files/csv_files/qkmer.csv"
-    pd_qkmer.to_csv(filename, index=False)
+    pd_qkmer.to_csv(filename, index=False, header=False)
 
 main()
