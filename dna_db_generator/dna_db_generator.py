@@ -1,26 +1,24 @@
+'''
+Filename: dna_db_generator.py
+Description: Script for processing .fastq files downloaded from the NCBI database and generate
+both .csv files and .sql files for data insertion for dna_sequence exrtension testing.
+Authors: Kristóf Balázs, Stefanos Kypritidis, Otto Wantland, Nima Kamali Lassem
+'''
+
+# Library Imports
+import pandas as pd
 import os
-import psycopg2
-from random import randint
 
 
-#File paths
+# File paths
 sources_paths = []
 output_paths = []
 for file in os.listdir('files/fastqs'):
     if file.endswith(".fastq"):
         sources_paths.append(os.path.join("files/fastqs", file))
 
-#Databse connection
-def db_connect():
-    conn = psycopg2.connect(database="postgres",
-                            host="127.0.0.1",
-                            user='owantland1',
-                            password='password',
-                            port='5432')
-    cursor = conn.cursor()
-    return cursor, conn
 
-#Identifies the type of sequence as either DNA, Kmer or QKmer
+# Identifies the type of sequence as either DNA, Kmer or QKmer
 def seq_sorter(sequence, sequences, dnas, kmers, qkmers):
     if sequence.find("R") + sequence.find("N") + sequence.find("Y") >= -2:
         if len(sequence) <= 32:
@@ -36,6 +34,7 @@ def seq_sorter(sequence, sequences, dnas, kmers, qkmers):
             sequences[sequence] = 'dna'
             dnas.append(sequence)
     return sequences, dnas, kmers, qkmers
+
 
 # Read the generated .fastq file and return a list of dna sequences
 def query_parsing(files):
@@ -57,71 +56,69 @@ def query_parsing(files):
             seq.close()
     return sequences, dnas, kmers, qkmers
 
+
+# Reads the full sequence dictionary and creates sql insert files for each kind of data.
 def command_generator(sequence):
-        cursor, conn = db_connect()
+    with (open("files/sql_inserts/dna_inserts.sql", 'w') as dna_file,
+          open('files/sql_inserts/kmer_inserts.sql', 'w') as kmer_file,
+          open('files/sql_inserts/qkmer_inserts.sql', 'w') as qkmer_file):
+        dna_file.truncate(0)
+        kmer_file.truncate(0)
+        qkmer_file.truncate(0)
 
-        #Drop and create the appropriate tables
-        cursor.execute("DROP TABLE IF EXISTS DNAS;")
-        cursor.execute("CREATE TABLE DNAS (DNA_SEQUENCE DNA_SEQUENCE);")
+        dna_file.write("DROP TABLE IF EXISTS DNAS;\n")
+        dna_file.write("CREATE TABLE DNAS (DNA_SEQUENCE DNA_SEQUENCE);\n")
+        dna_file.write("INSERT INTO DNAS (DNA_SEQUENCE) VALUES\n")
 
-        cursor.execute("DROP TABLE IF EXISTS KMERS;")
-        cursor.execute("CREATE TABLE KMERS (KMER KMER);")
+        kmer_file.write("DROP TABLE IF EXISTS KMERS;\n")
+        kmer_file.write("CREATE TABLE KMERS (KMER KMER);\n")
+        kmer_file.write("INSERT INTO KMERS (KMER) VALUES\n")
 
-        cursor.execute("DROP TABLE IF EXISTS QKMERS;")
-        cursor.execute("CREATE TABLE QKMERS (QKMER QKMER);")
+        qkmer_file.write("DROP TABLE IF EXISTS QKMERS;\n")
+        qkmer_file.write("CREATE TABLE QKMERS (QKMER QKMER);\n")
+        qkmer_file.write("INSERT INTO QKMERS (QKMER) VALUES\n")
 
-        conn.commit()
+        first_dna = True
+        first_kmer = True
+        first_qkmer = True
 
         for seq, type in sequence.items():
             if type == 'dna':
-                cmd = f"INSERT INTO DNAS (DNA_SEQUENCE) VALUES ('{seq}');"
-                try:
-                    cursor.execute(cmd)
-                    conn.commit()
-                except:
-                    pass
+                if first_dna:
+                    dna_file.write(f"('{seq}')\n")
+                    first_dna = False
+                else:
+                    dna_file.write(f",('{seq}')\n")
             elif type == 'kmer':
-                cmd = f"INSERT INTO KMERS (KMER) VALUES ('{seq}');"
-                try:
-                    cursor.execute(cmd)
-                    conn.commit()
-                except:
-                    pass
+                if first_kmer:
+                    kmer_file.write(f"('{seq}')\n")
+                    first_kmer = False
+                else:
+                    kmer_file.write(f",('{seq}')\n")
             elif type == 'qkmer':
-                cmd = f"INSERT INTO QKMERS (QKMER) VALUES ('{seq}');"
-                try:
-                    cursor.execute(cmd)
-                    conn.commit()
-                except:
-                    pass
+                if first_qkmer:
+                    qkmer_file.write(f"('{seq}')\n")
+                    first_qkmer = False
+                else:
+                    qkmer_file.write(f",('{seq}')\n")
 
-        cursor.close()
-        conn.close()
-        print("connection closed")
 
-def kmer_generator():
-    cursor, conn = db_connect()
-    cursor.execute("SELECT * FROM DNAS;")
-    cmds = []
-    inserts = []
+# Main
+def main():
+    seq, dna, kmer, qkmer = query_parsing(sources_paths)
+    command_generator(seq)
 
-    for x in range(1,10000001):
-        m = cursor.fetchone()
-        n = randint(10,32)
-        cmds.append(f"SELECT generate_kmers('{m[0]}', {n}) LIMIT 1;")
-    conn.commit()
+    # Export sequence dictionary into a different .csv file for each data type
+    pd_dna =  pd.DataFrame(dna, columns=['SEQUENCE'])
+    filename = f"files/csv_files/dna.csv"
+    pd_dna.to_csv(filename, index=False)
 
-    for cmd in cmds:
-        cursor.execute(cmd)
-        m = cursor.fetchone()
-        inserts.append(f"INSERT INTO KMERS (KMER) VALUES ('{m[0]}');")
-    conn.commit()
+    pd_kmer =  pd.DataFrame(kmer, columns=['SEQUENCE'])
+    filename = f"files/csv_files/kmer.csv"
+    pd_kmer.to_csv(filename, index=False)
 
-    for insert in inserts:
-        cursor.execute(insert)
-        conn.commit()
-    conn.close()
+    pd_qkmer =  pd.DataFrame(qkmer, columns=['SEQUENCE'])
+    filename = f"files/csv_files/qkmer.csv"
+    pd_qkmer.to_csv(filename, index=False)
 
-seq, dna, kmer, qkmer = query_parsing(sources_paths)
-command_generator(seq)
-kmer_generator()
+main()
