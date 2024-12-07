@@ -41,6 +41,7 @@ To properly compile and install the extension follow these steps:
 	sudo make install
 	``` 
 command to install the extension.
+
 5. Connect to the desired PostgreSQL server and run:
 ```
 CREATE EXTENSION dna_sequence;
