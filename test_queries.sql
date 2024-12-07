@@ -1,3 +1,9 @@
+/*
+Filename: test_queries.sql
+Description: Set of queries for validating the functionality of the dna_sequence extension for Postgres.
+Authors: Kristóf Balázs, Stefanos Kypritidis, Otto Wantland, Nima Kamali Lassem
+*/
+
 DROP EXTENSION IF EXISTS dna_sequence CASCADE;
 CREATE EXTENSION dna_sequence;
 
