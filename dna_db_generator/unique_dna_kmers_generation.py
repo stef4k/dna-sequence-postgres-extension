@@ -43,8 +43,8 @@ def process_dna_sequences(input_file, output_file, max_rows=100_000_000):
                     if row_count >= max_rows:
                         break
 
-input_csv = "dnas.csv"
-output_csv = "unique_dna_kmers.csv"
+input_csv = "files/csv_files/dnas.csv"
+output_csv = "files/csv_files/unique_dna_kmers.csv"
 
 # Careful, there will be a lot of output
 # In our cases, we have over 1 million DNA sequences and it yields more than 29 million unique k-mers
