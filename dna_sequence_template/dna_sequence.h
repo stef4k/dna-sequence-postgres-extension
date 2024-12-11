@@ -16,17 +16,17 @@
 /* Structure Definitions */
 typedef struct {
     int32 length;
-    char data[];
+    char data[FLEXIBLE_ARRAY_MEMBER];
 } Dna_sequence;
 
 typedef struct {
     int32 length;
-    char data[];
+    char data[FLEXIBLE_ARRAY_MEMBER];
 } Kmer;
 
 typedef struct {
     int32 length;
-    char data[];
+    char data[FLEXIBLE_ARRAY_MEMBER];
 } Qkmer;
 
 /* Validation Functions */
@@ -35,7 +35,6 @@ bool is_valid_kmer_string(const char *str);
 bool is_valid_qkmer_string(const char *str);
 
 /* Shared Helper Functions */
-/* Helper functions */
 
 static int nucleotide_to_bits(char c){
     switch (c) {
@@ -76,4 +75,4 @@ static int iupac_code_to_bits(char c) {
     }
 }
 
-#endif /* DNA_SEQUENCE_H */
+#endif

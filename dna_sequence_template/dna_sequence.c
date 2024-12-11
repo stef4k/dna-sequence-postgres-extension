@@ -384,13 +384,6 @@ Datum generate_kmers(PG_FUNCTION_ARGS) {
         kmer_str[fctx->k] = '\0';  // null-terminate
 
         /* Create a Kmer object */
-        /* Explanation to Otto (only the first line below):
-            1. palloc allocates memory from PSQL's memory context (PSQL will automatically clean up this memory when no longer needed) 
-            2. (Kmer *) casts the pointer returned by palloc to a pointer of type Kmer (defined above in a struct) 
-            3. VARHDRSZ: PSQL macro -> size of the variable-length data header (4 bytes)
-            4. fctx->k: the length of the k-mer
-            5. By adding the two, there will be enough space for both the header and the k-mer data (k bytes)
-            */
         kmer_result = (Kmer *) palloc(VARHDRSZ + fctx->k);
         SET_VARSIZE(kmer_result, VARHDRSZ + fctx->k);
         memcpy(kmer_result->data, kmer_str, fctx->k);

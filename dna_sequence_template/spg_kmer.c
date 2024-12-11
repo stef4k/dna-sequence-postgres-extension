@@ -9,7 +9,7 @@
 #include "catalog/pg_type.h"
 #include "utils/datum.h"
 #include "utils/pg_locale.h"
-#include "storage/bufpage.h" // //for BLCKSZ
+#include "storage/bufpage.h" //for BLCKSZ
 #include "utils/varlena.h"
 #include "common/int.h"
 
@@ -530,12 +530,18 @@ spg_kmer_inner_consistent(PG_FUNCTION_ARGS)
     // nNodes must be set to the number of child nodes that need to be visited by the search.
     out->nNodes = 0;
 
+    // Debugging
+    // elog(NOTICE, "Number of nodes: %d", in->nNodes);
+
     for (i = 0; i < in->nNodes; i++)
     {
         int16       nodeChar = DatumGetInt16(in->nodeLabels[i]);
         int         thisLen;
         bool        res = true;
         int         j;
+
+        // Debugging
+        // elog(NOTICE, "Node: %d", nodeChar);
 
         /* If nodeChar is a dummy value, don't include it in data */
         if (nodeChar <= 0)
