@@ -448,7 +448,8 @@ Datum kmer_starts_with(PG_FUNCTION_ARGS) {
  In detail this function:
  - iterates in reverse over the kmer with a for loop
  - finds the reverse complement of the k-mer
- - compares the k-mer and the reverse coomplement and returns the smaller one 
+ - compares the k-mer and the reverse coomplement and returns the smaller one
+ as a kmer type
  ******************************************************************************/
 
 PG_FUNCTION_INFO_V1(canonical_kmer);
