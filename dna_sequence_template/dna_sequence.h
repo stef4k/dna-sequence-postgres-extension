@@ -16,17 +16,17 @@
 /* Structure Definitions */
 typedef struct {
     int32 length;
-    char data[FLEXIBLE_ARRAY_MEMBER];
+    char data[];
 } Dna_sequence;
 
 typedef struct {
     int32 length;
-    char data[FLEXIBLE_ARRAY_MEMBER];
+    char data[];
 } Kmer;
 
 typedef struct {
     int32 length;
-    char data[FLEXIBLE_ARRAY_MEMBER];
+    char data[];
 } Qkmer;
 
 /* Validation Functions */
