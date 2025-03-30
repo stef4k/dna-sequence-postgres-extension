@@ -2,6 +2,8 @@
 Repository for the development of the DNA Sequence Extension for Postgres as part of the 2024 INFO-H417 Database System Architecture project.
 This repository contains the extension template and scripts used to create the extension as well as the datasets and sql functions to test it out.
 
+Check the [final presentation](https://github.com/stef4k/dna-sequence-postgres-extension/blob/main/final_presentation.pdf)
+
 Group Members:
 - [Kristóf Balázs](https://github.com/Kiklar)
 - [Stefanos Kypritidis](https://github.com/stef4k)
